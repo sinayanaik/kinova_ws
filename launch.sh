@@ -12,6 +12,26 @@ echo "=============================================="
 echo " Kinova Gen3 Lite Pick-and-Place Launcher"
 echo "=============================================="
 
+# ---- Kill any leftover Gazebo / ROS processes from previous runs ----
+echo "[CLEANUP] Killing leftover Gazebo and ROS processes..."
+# Kill Gazebo server and client
+killall -9 gz 2>/dev/null || true
+killall -9 ruby 2>/dev/null || true
+killall -9 parameter_bridge 2>/dev/null || true
+killall -9 robot_state_publisher 2>/dev/null || true
+killall -9 spawner 2>/dev/null || true
+killall -9 rqt_image_view 2>/dev/null || true
+killall -9 color_detector_node 2>/dev/null || true
+killall -9 pick_and_place_node 2>/dev/null || true
+killall -9 ik_solver 2>/dev/null || true
+
+# Also kill any ros2 daemon
+ros2 daemon stop 2>/dev/null || true
+
+# Wait for processes to fully terminate
+sleep 2
+echo "[OK] Cleanup complete"
+
 # Source ROS2 Jazzy
 if [ -f /opt/ros/jazzy/setup.bash ]; then
     source /opt/ros/jazzy/setup.bash
