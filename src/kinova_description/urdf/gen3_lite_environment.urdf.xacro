@@ -222,12 +222,12 @@
         <diffuse>${color_r} ${color_g} ${color_b} 1</diffuse></material></visual></gazebo>
   </xacro:macro>
 
-  <!-- Dark Red container (for red cube) — single row at x=0.30 -->
-  <xacro:container_box name="red_container"    x="0.30" y="-0.12" color_r="0.5" color_g="0.0" color_b="0.0"/>
-  <!-- Dark Green container (for green cube) -->
-  <xacro:container_box name="green_container"  x="0.30" y="0.0"   color_r="0.0" color_g="0.4" color_b="0.0"/>
-  <!-- Dark Yellow container (for yellow cube) -->
-  <xacro:container_box name="yellow_container" x="0.30" y="0.12"  color_r="0.6" color_g="0.5" color_b="0.0"/>
+  <!-- Red container — far right, well clear of cubes -->
+  <xacro:container_box name="red_container"    x="0.40" y="-0.15" color_r="0.35" color_g="0.35" color_b="0.35"/>
+  <!-- Green container — far left, well clear of cubes -->
+  <xacro:container_box name="green_container"  x="0.40" y="0.15"  color_r="0.30" color_g="0.30" color_b="0.30"/>
+  <!-- Yellow container — far center, well clear of cubes -->
+  <xacro:container_box name="yellow_container" x="0.40" y="0.0"   color_r="0.40" color_g="0.40" color_b="0.40"/>
 
   <!-- ===============================================================
        GAZEBO PLUGINS — ros2_control (cameras are now in SDF world)

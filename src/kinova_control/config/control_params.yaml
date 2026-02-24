@@ -11,45 +11,46 @@ pick_and_place_node:
 
     # ----- IK Solver -----
     ik:
-      max_iterations: 200
-      tolerance: 0.001
-      damping_lambda: 0.000001
-      step_size: 1.0
+      max_iterations: 300
+      tolerance: 0.002
+      damping_lambda: 0.0001
+      step_size: 0.5
 
     # ----- Motion Execution -----
     motion:
-      interpolation_steps: 15
-      waypoint_duration: 2.5        # seconds per waypoint transition
-      slow_duration: 3.0            # seconds for grasp/place approach
+      interpolation_steps: 8
+      waypoint_duration: 0.8        # seconds per waypoint transition
+      slow_duration: 0.8            # seconds for grasp/place approach
       transit_height: 0.35          # Z height for safe lateral moves (base frame)
 
     # ----- Gripper Control -----
     gripper:
       open_position: 0.0            # fully open
-      close_position: 0.8           # mostly closed for 0.04m cube
+      close_position: 0.85          # fully closed for empty-grasp detection
       max_effort: 100.0
-      wait_after_command: 1.0       # seconds to wait after gripper command
+      wait_after_command: 0.3       # seconds to wait after gripper command
 
     # ----- Grasp Verification -----
     grasp:
-      finger_min_expected: 0.4      # min finger pos when cube is held
-      finger_max_expected: 0.75     # max finger pos when cube is held
-      position_tolerance: 0.03      # meters — cube "gone from table" tolerance
-      required_checks: 2            # must pass this many checks
+      finger_min_expected: 0.15     # min finger pos when cube is held
+      finger_max_expected: 0.65     # max finger pos when cube is held (empty closes to ~0.85)
+      position_tolerance: 0.05      # meters — cube "gone from table" tolerance
+      required_checks: 1            # only finger-gap check needed
 
     # ----- Drop Detection -----
     drop:
       check_interval: 0.5           # seconds between finger position checks
-      finger_min_threshold: 0.3     # below this = cube dropped (fingers too open)
-      finger_max_threshold: 0.85    # above this = cube dropped (fingers fully closed)
+      finger_min_threshold: 0.1     # below this = cube dropped (fingers too open)
+      finger_max_threshold: 0.80    # above this = cube dropped (fingers fully closed)
 
     # ----- Waypoint Offsets (relative to cube/container positions) -----
+    # IK now targets tool_frame (fingertip) directly — no TCP offset needed
     offsets:
-      pre_grasp_z: 0.08
-      grasp_z: 0.02
-      post_grasp_z: 0.12
-      pre_place_z: 0.25
-      place_z: 0.06
+      pre_grasp_z: 0.05
+      grasp_z: -0.005
+      post_grasp_z: 0.08
+      pre_place_z: 0.10
+      drop_height: 0.07              # height above container to open gripper and drop cube
 
     # ----- Arm Joint Names -----
     arm_joint_names:

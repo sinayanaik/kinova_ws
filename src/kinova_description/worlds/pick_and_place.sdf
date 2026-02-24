@@ -66,22 +66,27 @@
     </model>
 
     <!-- ===============================================================
-         RED CUBE — 0.04m, on table at (0.35, 0.05)
-         Table surface is at z=0.75, cube half-height 0.02, so center z=0.77
+         CUBES — 6 cubes in a single row along Y-axis at x=0.18.
+         8cm spacing between centers (3.5cm cubes = 4.5cm gap).
+         Gripper approaches from above without disturbing neighbors.
+         Robot base at (0,0,0.75). Vertical reach: x∈[0.15,0.21], y∈[-0.20,0.20].
+         Table surface z=0.75, cube half-height 0.0175, center z=0.7675.
          =============================================================== -->
+
+    <!-- RED CUBE 1 -->
     <model name="red_cube">
-      <pose>0.35 0.05 0.77 0 0 0</pose>
+      <pose>0.18 -0.20 0.7675 0 0 0</pose>
       <link name="cube_link">
         <inertial>
-          <mass>0.05</mass>
+          <mass>0.04</mass>
           <inertia>
-            <ixx>1.333e-05</ixx><ixy>0</ixy><ixz>0</ixz>
-            <iyy>1.333e-05</iyy><iyz>0</iyz>
-            <izz>1.333e-05</izz>
+            <ixx>8.167e-06</ixx><ixy>0</ixy><ixz>0</ixz>
+            <iyy>8.167e-06</iyy><iyz>0</iyz>
+            <izz>8.167e-06</izz>
           </inertia>
         </inertial>
         <visual name="visual">
-          <geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+          <geometry><box><size>0.035 0.035 0.035</size></box></geometry>
           <material>
             <ambient>1.0 0.0 0.0 1</ambient>
             <diffuse>1.0 0.0 0.0 1</diffuse>
@@ -89,7 +94,7 @@
           </material>
         </visual>
         <collision name="collision">
-          <geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+          <geometry><box><size>0.035 0.035 0.035</size></box></geometry>
           <surface>
             <friction>
               <ode><mu>1.0</mu><mu2>1.0</mu2></ode>
@@ -106,22 +111,20 @@
       </link>
     </model>
 
-    <!-- ===============================================================
-         GREEN CUBE — 0.04m, on table at (0.40, -0.05)
-         =============================================================== -->
+    <!-- GREEN CUBE 1 -->
     <model name="green_cube">
-      <pose>0.40 -0.05 0.77 0 0 0</pose>
+      <pose>0.18 0.12 0.7675 0 0 0</pose>
       <link name="cube_link">
         <inertial>
-          <mass>0.05</mass>
+          <mass>0.04</mass>
           <inertia>
-            <ixx>1.333e-05</ixx><ixy>0</ixy><ixz>0</ixz>
-            <iyy>1.333e-05</iyy><iyz>0</iyz>
-            <izz>1.333e-05</izz>
+            <ixx>8.167e-06</ixx><ixy>0</ixy><ixz>0</ixz>
+            <iyy>8.167e-06</iyy><iyz>0</iyz>
+            <izz>8.167e-06</izz>
           </inertia>
         </inertial>
         <visual name="visual">
-          <geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+          <geometry><box><size>0.035 0.035 0.035</size></box></geometry>
           <material>
             <ambient>0.0 1.0 0.0 1</ambient>
             <diffuse>0.0 1.0 0.0 1</diffuse>
@@ -129,7 +132,7 @@
           </material>
         </visual>
         <collision name="collision">
-          <geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+          <geometry><box><size>0.035 0.035 0.035</size></box></geometry>
           <surface>
             <friction>
               <ode><mu>1.0</mu><mu2>1.0</mu2></ode>
@@ -146,22 +149,20 @@
       </link>
     </model>
 
-    <!-- ===============================================================
-         YELLOW CUBE — 0.04m, on table at (0.32, -0.08)
-         =============================================================== -->
+    <!-- YELLOW CUBE 1 -->
     <model name="yellow_cube">
-      <pose>0.32 -0.08 0.77 0 0 0</pose>
+      <pose>0.18 -0.04 0.7675 0 0 0</pose>
       <link name="cube_link">
         <inertial>
-          <mass>0.05</mass>
+          <mass>0.04</mass>
           <inertia>
-            <ixx>1.333e-05</ixx><ixy>0</ixy><ixz>0</ixz>
-            <iyy>1.333e-05</iyy><iyz>0</iyz>
-            <izz>1.333e-05</izz>
+            <ixx>8.167e-06</ixx><ixy>0</ixy><ixz>0</ixz>
+            <iyy>8.167e-06</iyy><iyz>0</iyz>
+            <izz>8.167e-06</izz>
           </inertia>
         </inertial>
         <visual name="visual">
-          <geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+          <geometry><box><size>0.035 0.035 0.035</size></box></geometry>
           <material>
             <ambient>1.0 1.0 0.0 1</ambient>
             <diffuse>1.0 1.0 0.0 1</diffuse>
@@ -169,7 +170,7 @@
           </material>
         </visual>
         <collision name="collision">
-          <geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+          <geometry><box><size>0.035 0.035 0.035</size></box></geometry>
           <surface>
             <friction>
               <ode><mu>1.0</mu><mu2>1.0</mu2></ode>
@@ -189,54 +190,57 @@
     <!-- ===============================================================
          ADDITIONAL CUBES — 2nd cube of each color for 6 total
          =============================================================== -->
+    <!-- RED CUBE 2 -->
     <model name="red_cube_2">
-      <pose>0.38 0.10 0.77 0 0 0</pose>
+      <pose>0.18 -0.12 0.7675 0 0 0</pose>
       <link name="cube_link">
-        <inertial><mass>0.05</mass>
-          <inertia><ixx>1.333e-05</ixx><ixy>0</ixy><ixz>0</ixz><iyy>1.333e-05</iyy><iyz>0</iyz><izz>1.333e-05</izz></inertia>
+        <inertial><mass>0.04</mass>
+          <inertia><ixx>8.167e-06</ixx><ixy>0</ixy><ixz>0</ixz><iyy>8.167e-06</iyy><iyz>0</iyz><izz>8.167e-06</izz></inertia>
         </inertial>
         <visual name="visual">
-          <geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+          <geometry><box><size>0.035 0.035 0.035</size></box></geometry>
           <material><ambient>1.0 0.0 0.0 1</ambient><diffuse>1.0 0.0 0.0 1</diffuse><specular>0.1 0.1 0.1 1</specular></material>
         </visual>
         <collision name="collision">
-          <geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+          <geometry><box><size>0.035 0.035 0.035</size></box></geometry>
           <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
             <contact><ode><kp>1000000</kp><kd>100</kd><min_depth>0.001</min_depth></ode></contact></surface>
         </collision>
       </link>
     </model>
 
+    <!-- GREEN CUBE 2 -->
     <model name="green_cube_2">
-      <pose>0.45 0.05 0.77 0 0 0</pose>
+      <pose>0.18 0.20 0.7675 0 0 0</pose>
       <link name="cube_link">
-        <inertial><mass>0.05</mass>
-          <inertia><ixx>1.333e-05</ixx><ixy>0</ixy><ixz>0</ixz><iyy>1.333e-05</iyy><iyz>0</iyz><izz>1.333e-05</izz></inertia>
+        <inertial><mass>0.04</mass>
+          <inertia><ixx>8.167e-06</ixx><ixy>0</ixy><ixz>0</ixz><iyy>8.167e-06</iyy><iyz>0</iyz><izz>8.167e-06</izz></inertia>
         </inertial>
         <visual name="visual">
-          <geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+          <geometry><box><size>0.035 0.035 0.035</size></box></geometry>
           <material><ambient>0.0 1.0 0.0 1</ambient><diffuse>0.0 1.0 0.0 1</diffuse><specular>0.1 0.1 0.1 1</specular></material>
         </visual>
         <collision name="collision">
-          <geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+          <geometry><box><size>0.035 0.035 0.035</size></box></geometry>
           <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
             <contact><ode><kp>1000000</kp><kd>100</kd><min_depth>0.001</min_depth></ode></contact></surface>
         </collision>
       </link>
     </model>
 
+    <!-- YELLOW CUBE 2 -->
     <model name="yellow_cube_2">
-      <pose>0.36 -0.12 0.77 0 0 0</pose>
+      <pose>0.18 0.04 0.7675 0 0 0</pose>
       <link name="cube_link">
-        <inertial><mass>0.05</mass>
-          <inertia><ixx>1.333e-05</ixx><ixy>0</ixy><ixz>0</ixz><iyy>1.333e-05</iyy><iyz>0</iyz><izz>1.333e-05</izz></inertia>
+        <inertial><mass>0.04</mass>
+          <inertia><ixx>8.167e-06</ixx><ixy>0</ixy><ixz>0</ixz><iyy>8.167e-06</iyy><iyz>0</iyz><izz>8.167e-06</izz></inertia>
         </inertial>
         <visual name="visual">
-          <geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+          <geometry><box><size>0.035 0.035 0.035</size></box></geometry>
           <material><ambient>1.0 1.0 0.0 1</ambient><diffuse>1.0 1.0 0.0 1</diffuse><specular>0.1 0.1 0.1 1</specular></material>
         </visual>
         <collision name="collision">
-          <geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+          <geometry><box><size>0.035 0.035 0.035</size></box></geometry>
           <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
             <contact><ode><kp>1000000</kp><kd>100</kd><min_depth>0.001</min_depth></ode></contact></surface>
         </collision>
@@ -262,12 +266,13 @@
     </plugin>
 
     <!-- ===============================================================
-         OVERHEAD CAMERA — static model looking straight down at the table
-         Math: Ry(+π/2)*[1,0,0] = [0,0,-1] = -Z world = DOWN ✓
+         OVERHEAD CAMERA — centered over cube row
+         Position: (0.18, 0.00, 1.5) — directly above the row center.
+         Ry(+π/2)*[1,0,0] = [0,0,-1] = -Z world = DOWN ✓
          =============================================================== -->
     <model name="overhead_camera">
       <static>true</static>
-      <pose>0.35 0.0 1.5 0 1.5708 0</pose>
+      <pose>0.18 0.00 1.5 0 1.5708 0</pose>
       <link name="link">
         <sensor name="camera_overhead" type="camera">
           <camera>
@@ -286,36 +291,6 @@
           <update_rate>15</update_rate>
           <visualize>true</visualize>
           <topic>/camera_overhead</topic>
-        </sensor>
-      </link>
-    </model>
-
-    <!-- ===============================================================
-         SIDE CAMERA — looking toward the table from the side
-         Position: (0.35, -0.8, 1.0) looking in +Y direction
-         RPY: (0, 0, π/2) → yaw=90° → +X = +Y world = looking toward table
-         =============================================================== -->
-    <model name="side_camera">
-      <static>true</static>
-      <pose>0.35 -0.8 1.0 0 0 1.5708</pose>
-      <link name="link">
-        <sensor name="camera_side" type="camera">
-          <camera>
-            <horizontal_fov>1.047</horizontal_fov>
-            <image>
-              <width>640</width>
-              <height>480</height>
-              <format>R8G8B8</format>
-            </image>
-            <clip>
-              <near>0.05</near>
-              <far>5.0</far>
-            </clip>
-          </camera>
-          <always_on>true</always_on>
-          <update_rate>15</update_rate>
-          <visualize>true</visualize>
-          <topic>/camera_side</topic>
         </sensor>
       </link>
     </model>

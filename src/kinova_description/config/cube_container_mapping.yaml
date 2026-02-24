@@ -1,30 +1,31 @@
 # =============================================================================
 # cube_container_mapping.yaml
 # Maps each cube color to its target container and world-frame position.
-# Containers are in a single row at x=0.30, separated by 0.12m in Y.
+# Containers placed far from cubes at x=0.40 (cubes at x=0.15-0.17).
 # 6 cubes total (2 per color), each color goes to the same container.
 # =============================================================================
 cube_container_mapping:
   red:
     target_container: red_container
-    container_position: [0.30, -0.12, 0.755]
+    container_position: [0.40, -0.15, 0.755]
     num_cubes: 2
 
   green:
     target_container: green_container
-    container_position: [0.30, 0.0, 0.755]
+    container_position: [0.40, 0.15, 0.755]
     num_cubes: 2
 
   yellow:
     target_container: yellow_container
-    container_position: [0.30, 0.12, 0.755]
+    container_position: [0.40, 0.0, 0.755]
     num_cubes: 2
 
-# Cube initial positions (world frame, for reference / perception validation)
+# Cube initial positions (world frame, matching SDF — 0.035m cubes)
+# Single row at x=0.18, 8cm spacing along y-axis
 cube_positions:
-  red_1:    [0.35, 0.05, 0.77]
-  red_2:    [0.38, 0.10, 0.77]
-  green_1:  [0.40, -0.05, 0.77]
-  green_2:  [0.45, 0.05, 0.77]
-  yellow_1: [0.32, -0.08, 0.77]
-  yellow_2: [0.36, -0.12, 0.77]
+  red_1:    [0.18, -0.20, 0.7675]
+  red_2:    [0.18, -0.12, 0.7675]
+  yellow_1: [0.18, -0.04, 0.7675]
+  yellow_2: [0.18,  0.04, 0.7675]
+  green_1:  [0.18,  0.12, 0.7675]
+  green_2:  [0.18,  0.20, 0.7675]

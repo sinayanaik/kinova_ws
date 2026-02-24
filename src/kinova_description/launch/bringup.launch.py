@@ -136,16 +136,13 @@ def generate_launch_description():
         package='ros_gz_bridge',
         executable='parameter_bridge',
         arguments=[
-            # Camera sensors publish image directly to /<topic> (not /<topic>/image)
+            # Single overhead camera
             '/camera_overhead@sensor_msgs/msg/Image@gz.msgs.Image',
             '/camera_overhead/camera_info@sensor_msgs/msg/CameraInfo@gz.msgs.CameraInfo',
-            '/camera_side@sensor_msgs/msg/Image@gz.msgs.Image',
-            '/camera_side/camera_info@sensor_msgs/msg/CameraInfo@gz.msgs.CameraInfo',
             '/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
         ],
         remappings=[
             ('/camera_overhead', '/camera_overhead/image_raw'),
-            ('/camera_side', '/camera_side/image_raw'),
         ],
         output='screen',
         parameters=[{'use_sim_time': use_sim_time}],
@@ -153,7 +150,7 @@ def generate_launch_description():
 
     # Perception launch (delayed to let cameras initialize)
     perception_launch = TimerAction(
-        period=8.0,
+        period=4.0,
         actions=[
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
@@ -166,7 +163,7 @@ def generate_launch_description():
 
     # Control launch (delayed to let perception + controllers initialize)
     control_launch = TimerAction(
-        period=12.0,
+        period=6.0,
         actions=[
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
@@ -177,23 +174,13 @@ def generate_launch_description():
         ],
     )
 
-    # rqt_image_view for camera feeds (delayed to let cameras start)
+    # rqt_image_view for overhead camera feed
     rqt_overhead = TimerAction(
         period=10.0,
         actions=[
             ExecuteProcess(
                 cmd=['ros2', 'run', 'rqt_image_view', 'rqt_image_view',
-                     '/camera_overhead/image_raw'],
-                output='screen',
-            )
-        ],
-    )
-    rqt_side = TimerAction(
-        period=11.0,
-        actions=[
-            ExecuteProcess(
-                cmd=['ros2', 'run', 'rqt_image_view', 'rqt_image_view',
-                     '/camera_side/image_raw'],
+                     '/camera_overhead/processed'],
                 output='screen',
             )
         ],
@@ -212,5 +199,4 @@ def generate_launch_description():
         perception_launch,
         control_launch,
         rqt_overhead,
-        rqt_side,
     ])

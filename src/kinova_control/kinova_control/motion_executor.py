@@ -141,9 +141,9 @@ class MotionExecutor:
                 wp_pos, target_orientation, q_prev
             )
             if not success:
-                # Try position-only solve as fallback
-                success, q_sol = self.ik_solver.solve_position_only(
-                    wp_pos, target_orientation, q_prev
+                # Try Z-axis-down 5D solve as fallback (preserves vertical)
+                success, q_sol = self.ik_solver.solve_z_axis_down(
+                    wp_pos, q_prev
                 )
                 if not success:
                     self.node.get_logger().warn(
@@ -204,8 +204,8 @@ class MotionExecutor:
                     wp_pos, orientation, q_prev
                 )
                 if not success:
-                    success, q_sol = self.ik_solver.solve_position_only(
-                        wp_pos, orientation, q_prev
+                    success, q_sol = self.ik_solver.solve_z_axis_down(
+                        wp_pos, q_prev
                     )
                     if not success:
                         self.node.get_logger().warn(

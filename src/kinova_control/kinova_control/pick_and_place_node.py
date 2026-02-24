@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
-pick_and_place_node.py
-Main state machine orchestrator for the Kinova Gen3 Lite pick-and-place.
+pick_and_place_node.py  –  FAST state machine for Kinova Gen3 Lite pick-and-place.
 
-Implements the complete pick-and-place cycle:
-  INITIALIZE → OBSERVE → PRE_GRASP → GRASP → VERIFY_GRASP →
-  TRANSIT_TO_PLACE → PLACE → VERIFY_PLACE → COMPLETE
-  (with RECOVER_DROP fallback)
+States: INITIALIZE → OBSERVE → PRE_GRASP → GRASP → VERIFY_GRASP →
+        TRANSIT_TO_PLACE → PLACE → VERIFY_PLACE → COMPLETE
+        (with RECOVER_DROP fallback)
 
-Uses a background thread for the state machine so that ROS2 callbacks
-(joint states, detections) continue processing on the main executor.
-All waits use time.sleep(), not asyncio.
+Design choices for speed:
+ - Short trajectory durations (1-2 s instead of 3-4 s).
+ - Minimal sleep() calls.  Only wait where physics needs settling.
+ - Joint-space interpolation with few waypoints for large motions.
+ - Cartesian interpolation only for final descent/ascent (~6 cm).
+ - Grasp verification requires only 1 check (finger gap).
+ - No IK warm-up tests during initialization.
 """
 import time
 import threading
@@ -33,831 +35,622 @@ from kinova_control.gripper_controller import GripperController
 from kinova_control.grasp_verifier import GraspVerifier, DropDetector
 
 
-class PickAndPlaceState:
-    """Enumeration of all state machine states."""
-    INITIALIZE = 'INITIALIZE'
-    OBSERVE = 'OBSERVE'
-    PRE_GRASP = 'PRE_GRASP'
-    GRASP = 'GRASP'
-    VERIFY_GRASP = 'VERIFY_GRASP'
-    TRANSIT_TO_PLACE = 'TRANSIT_TO_PLACE'
-    PLACE = 'PLACE'
-    VERIFY_PLACE = 'VERIFY_PLACE'
-    RECOVER_DROP = 'RECOVER_DROP'
-    COMPLETE = 'COMPLETE'
+class S:
+    """State names."""
+    INITIALIZE      = 'INITIALIZE'
+    OBSERVE         = 'OBSERVE'
+    PRE_GRASP       = 'PRE_GRASP'
+    GRASP           = 'GRASP'
+    VERIFY_GRASP    = 'VERIFY_GRASP'
+    TRANSIT         = 'TRANSIT_TO_PLACE'
+    PLACE           = 'PLACE'
+    VERIFY_PLACE    = 'VERIFY_PLACE'
+    RECOVER_DROP    = 'RECOVER_DROP'
+    COMPLETE        = 'COMPLETE'
 
 
 class PickAndPlaceNode(Node):
-    """
-    ROS2 node implementing the complete pick-and-place state machine.
-
-    The state machine runs in a background thread so that ROS2 callbacks
-    (joint states, perception) continue to be processed by the main executor.
-    """
 
     def __init__(self):
         super().__init__('pick_and_place_node')
-        self.get_logger().info('=' * 60)
-        self.get_logger().info('Initializing Pick-and-Place State Machine...')
-        self.get_logger().info('=' * 60)
-
-        # Callback group for async operations
+        self.get_logger().info('Pick-and-Place node starting...')
         self.cb_group = ReentrantCallbackGroup()
 
-        # ---- Declare parameters ----
-        self._declare_all_parameters()
+        # ---------- ROS parameters ----------
+        self._declare_params()
 
-        # ---- State machine ----
-        self.state = PickAndPlaceState.INITIALIZE
-        self.cubes_sorted = {}  # color -> count of cubes sorted
-        self.total_cubes = 6  # 2 per color
+        # ---------- State machine ----------
+        self.state = S.INITIALIZE
+        self.cubes_sorted = {}          # color -> int
+        self.total_cubes = 6
         self.current_cube_color = None
         self.current_cube_pos = None
         self.current_container_pos = None
         self.retry_count = 0
         self.max_retries = 3
 
-        # ---- Latest sensor data ----
+        # Ordered picking: red -> green -> yellow -> red -> green -> yellow
+        self.pick_order = ['red', 'green', 'yellow', 'red', 'green', 'yellow']
+        self.pick_index = 0
+
+        # ---------- Sensor data ----------
         self.latest_joint_state = None
         self.latest_cube_detections = None
         self.arm_joint_names = None
-        self.gripper_joint_names = None
         self.current_arm_positions = np.zeros(6)
         self.current_finger_pos = 0.0
 
-        # ---- Load config files ----
+        # Load configs
         self._load_configs()
 
-        # ---- Subscribers ----
-        self.joint_state_sub = self.create_subscription(
+        # Subscribers
+        self.create_subscription(
             JointState, '/joint_states',
-            self._joint_state_callback, 10,
-            callback_group=self.cb_group
-        )
-        self.detections_sub = self.create_subscription(
+            self._joint_state_cb, 10, callback_group=self.cb_group)
+        self.create_subscription(
             PoseArray, '/perception/cube_detections',
-            self._detections_callback, 10,
-            callback_group=self.cb_group
-        )
+            self._det_cb, 10, callback_group=self.cb_group)
 
-        # ---- Robot description (for Pinocchio) ----
+        # URDF for Pinocchio
         self.declare_parameter('robot_description', '')
         self.ik_solver = None
         self.gripper_controller = None
         self.grasp_verifier = None
         self.drop_detector = None
 
-        # ---- Arm action client ----
-        self.arm_action_client = ActionClient(
+        # Action client
+        self.arm_ac = ActionClient(
             self, FollowJointTrajectory,
-            '/joint_trajectory_controller/follow_joint_trajectory'
-        )
+            '/joint_trajectory_controller/follow_joint_trajectory')
 
-        # ---- Grasp orientation: gripper pointing straight down ----
-        self.grasp_orientation = np.array([
-            [1.0,  0.0,  0.0],
-            [0.0, -1.0,  0.0],
-            [0.0,  0.0, -1.0],
-        ])
+        # Grasp orientation: tool_frame pointing straight down
+        # tool_frame has Rz(π/2) offset from end_effector_link
+        self.grasp_R = np.array([
+            [ 0.0, -1.0,  0.0],
+            [-1.0,  0.0,  0.0],
+            [ 0.0,  0.0, -1.0]])
 
-        # ---- Start the state machine in a background thread after delay ----
-        self._sm_thread = threading.Thread(target=self._state_machine_thread, daemon=True)
-        self._sm_thread.start()
+        # Start state-machine thread
+        threading.Thread(target=self._sm_loop, daemon=True).start()
 
-        self.get_logger().info('Node created. State machine thread started.')
-
-    def _declare_all_parameters(self):
-        """Declare all ROS2 parameters with defaults."""
-        # IK
-        self.declare_parameter('ik.max_iterations', 200)
-        self.declare_parameter('ik.tolerance', 0.001)
-        self.declare_parameter('ik.damping_lambda', 1e-6)
-        self.declare_parameter('ik.step_size', 1.0)
-
-        # Motion
-        self.declare_parameter('motion.interpolation_steps', 15)
-        self.declare_parameter('motion.waypoint_duration', 2.5)
-        self.declare_parameter('motion.slow_duration', 3.0)
-        self.declare_parameter('motion.transit_height', 0.35)
-
-        # Gripper
-        self.declare_parameter('gripper.open_position', 0.0)
-        self.declare_parameter('gripper.close_position', 0.8)
-        self.declare_parameter('gripper.max_effort', 100.0)
-        self.declare_parameter('gripper.wait_after_command', 1.0)
-
-        # Grasp verification
-        self.declare_parameter('grasp.finger_min_expected', 0.4)
-        self.declare_parameter('grasp.finger_max_expected', 0.75)
-        self.declare_parameter('grasp.position_tolerance', 0.03)
-        self.declare_parameter('grasp.required_checks', 2)
-
-        # Drop detection
-        self.declare_parameter('drop.finger_min_threshold', 0.3)
-        self.declare_parameter('drop.finger_max_threshold', 0.85)
-
-        # Offsets
-        self.declare_parameter('offsets.pre_grasp_z', 0.08)
-        self.declare_parameter('offsets.grasp_z', 0.02)
-        self.declare_parameter('offsets.post_grasp_z', 0.12)
-        self.declare_parameter('offsets.pre_place_z', 0.25)
-        self.declare_parameter('offsets.place_z', 0.06)
-
-        # Joint names
-        self.declare_parameter('arm_joint_names',
-            ['joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5', 'joint_6'])
-        self.declare_parameter('gripper_joint_names',
-            ['right_finger_bottom_joint', 'right_finger_tip_joint',
-             'left_finger_bottom_joint', 'left_finger_tip_joint'])
+    # ============================================================
+    # PARAMETERS
+    # ============================================================
+    def _declare_params(self):
+        p = self.declare_parameter
+        p('ik.max_iterations', 300)
+        p('ik.tolerance', 0.002)
+        p('ik.damping_lambda', 1e-4)
+        p('ik.step_size', 0.5)
+        p('motion.interpolation_steps', 8)
+        p('motion.waypoint_duration', 0.8)
+        p('motion.slow_duration', 0.8)
+        p('motion.transit_height', 0.35)
+        p('gripper.open_position', 0.0)
+        p('gripper.close_position', 0.85)
+        p('gripper.max_effort', 100.0)
+        p('gripper.wait_after_command', 0.3)
+        p('grasp.finger_min_expected', 0.15)
+        p('grasp.finger_max_expected', 0.65)
+        p('grasp.position_tolerance', 0.05)
+        p('grasp.required_checks', 1)
+        p('drop.finger_min_threshold', 0.1)
+        p('drop.finger_max_threshold', 0.80)
+        p('offsets.pre_grasp_z', 0.05)
+        p('offsets.grasp_z', -0.005)
+        p('offsets.post_grasp_z', 0.08)
+        p('offsets.pre_place_z', 0.10)
+        p('offsets.drop_height', 0.07)  # height above container to open gripper and drop
+        p('arm_joint_names',
+          ['joint_1','joint_2','joint_3','joint_4','joint_5','joint_6'])
+        p('gripper_joint_names',
+          ['right_finger_bottom_joint','right_finger_tip_joint',
+           'left_finger_bottom_joint','left_finger_tip_joint'])
 
     def _load_configs(self):
-        """Load cube/container mapping and waypoints from YAML files."""
-        desc_share = get_package_share_directory('kinova_description')
-
-        # Load cube-container mapping
-        mapping_file = f'{desc_share}/config/cube_container_mapping.yaml'
+        desc = get_package_share_directory('kinova_description')
         try:
-            with open(mapping_file, 'r') as f:
-                mapping_data = yaml.safe_load(f)
-            self.cube_mapping = mapping_data.get('cube_container_mapping', {})
-            self.get_logger().info(f'Loaded cube-container mapping: {list(self.cube_mapping.keys())}')
+            with open(f'{desc}/config/cube_container_mapping.yaml') as f:
+                d = yaml.safe_load(f)
+            self.cube_mapping = d.get('cube_container_mapping', {})
         except Exception as e:
-            self.get_logger().error(f'Failed to load cube-container mapping: {e}')
+            self.get_logger().error(f'cube_container_mapping: {e}')
             self.cube_mapping = {}
-
-        # Load waypoints
-        waypoints_file = f'{desc_share}/config/waypoints.yaml'
         try:
-            with open(waypoints_file, 'r') as f:
-                wp_data = yaml.safe_load(f)
-            self.waypoints = wp_data.get('waypoints', {})
-            self.get_logger().info(f'Loaded waypoints config.')
+            with open(f'{desc}/config/waypoints.yaml') as f:
+                d = yaml.safe_load(f)
+            self.waypoints = d.get('waypoints', {})
         except Exception as e:
-            self.get_logger().error(f'Failed to load waypoints: {e}')
+            self.get_logger().error(f'waypoints: {e}')
             self.waypoints = {}
-
-        # Get joint names
         self.arm_joint_names = self.get_parameter('arm_joint_names').value
-        self.gripper_joint_names = self.get_parameter('gripper_joint_names').value
 
-    # ==================== CALLBACKS ====================
-
-    def _joint_state_callback(self, msg: JointState):
-        """Store latest joint state data."""
+    # ============================================================
+    # CALLBACKS
+    # ============================================================
+    def _joint_state_cb(self, msg):
         self.latest_joint_state = msg
         try:
-            positions = np.zeros(6)
             for i, name in enumerate(self.arm_joint_names):
                 if name in msg.name:
-                    idx = msg.name.index(name)
-                    positions[i] = msg.position[idx]
-            self.current_arm_positions = positions
-
+                    self.current_arm_positions[i] = msg.position[msg.name.index(name)]
             if 'right_finger_bottom_joint' in msg.name:
-                idx = msg.name.index('right_finger_bottom_joint')
-                self.current_finger_pos = msg.position[idx]
+                self.current_finger_pos = msg.position[
+                    msg.name.index('right_finger_bottom_joint')]
         except (ValueError, IndexError):
             pass
 
-    def _detections_callback(self, msg: PoseArray):
-        """Store latest cube detections from perception."""
+    def _det_cb(self, msg):
         self.latest_cube_detections = msg
 
-    def _transition(self, new_state: str, reason: str):
-        """Transition to a new state with logging."""
-        now = self.get_clock().now()
-        self.get_logger().info(
-            f'[{now.nanoseconds / 1e9:.2f}] STATE TRANSITION: '
-            f'{self.state} → {new_state} | Reason: {reason}'
-        )
-        self.state = new_state
+    def _log(self, txt):
+        self.get_logger().info(txt)
 
-    # ==================== SYNCHRONOUS MOTION HELPERS ====================
+    def _transition(self, new, reason):
+        self._log(f'STATE {self.state} -> {new} | {reason}')
+        self.state = new
 
-    def _send_joint_trajectory_blocking(self, joint_positions_list, duration=3.0):
-        """
-        Send arm joint positions via FollowJointTrajectory action, blocking until done.
-
-        Args:
-            joint_positions_list: List of 6-element arrays (one per waypoint)
-            duration: Total trajectory duration in seconds
-
-        Returns:
-            True if successful
-        """
-        if not self.arm_action_client.server_is_ready():
-            self.get_logger().error('Arm trajectory action server not ready!')
+    # ============================================================
+    # MOTION HELPERS  (keep durations SHORT)
+    # ============================================================
+    def _send_traj(self, wps, dur):
+        """Send joint trajectory blocking. wps = list of 6-arrays."""
+        if not self.arm_ac.server_is_ready():
+            self.get_logger().error('Arm action server not ready!')
             return False
-
-        trajectory = JointTrajectory()
-        trajectory.joint_names = self.arm_joint_names
-
-        n = len(joint_positions_list)
-        dt = duration / max(n, 1)
-        for i, positions in enumerate(joint_positions_list):
-            point = JointTrajectoryPoint()
-            point.positions = list(positions)
-            # Only set zero velocity at the LAST point (goal); let controller
-            # interpolate smoothly between intermediate points.
+        traj = JointTrajectory()
+        traj.joint_names = self.arm_joint_names
+        n = len(wps)
+        dt = dur / max(n, 1)
+        for i, q in enumerate(wps):
+            pt = JointTrajectoryPoint()
+            pt.positions = list(q)
             if i == n - 1:
-                point.velocities = [0.0] * 6
+                pt.velocities = [0.0] * 6
             t = (i + 1) * dt
-            point.time_from_start = Duration(
-                sec=int(t), nanosec=int((t % 1) * 1e9)
-            )
-            trajectory.points.append(point)
-
+            pt.time_from_start = Duration(sec=int(t), nanosec=int((t % 1) * 1e9))
+            traj.points.append(pt)
         goal = FollowJointTrajectory.Goal()
-        goal.trajectory = trajectory
-
-        self.get_logger().info(
-            f'Sending trajectory: {len(trajectory.points)} points, '
-            f'{duration:.1f}s duration'
-        )
-
-        # Send goal and wait for acceptance
-        send_future = self.arm_action_client.send_goal_async(goal)
-        while not send_future.done():
-            time.sleep(0.05)
-
-        goal_handle = send_future.result()
-        if not goal_handle.accepted:
-            self.get_logger().error('Trajectory goal REJECTED')
+        goal.trajectory = traj
+        fut = self.arm_ac.send_goal_async(goal)
+        while not fut.done():
+            time.sleep(0.02)
+        gh = fut.result()
+        if not gh.accepted:
+            self.get_logger().error('Trajectory REJECTED')
             return False
-
-        self.get_logger().info('Trajectory accepted, executing...')
-
-        # Wait for result
-        result_future = goal_handle.get_result_async()
-        while not result_future.done():
-            time.sleep(0.05)
-
-        result = result_future.result()
-        if result.result.error_code == FollowJointTrajectory.Result.SUCCESSFUL:
-            self.get_logger().info('Trajectory completed successfully.')
-            return True
-        else:
-            self.get_logger().warn(
-                f'Trajectory finished with code: {result.result.error_code}'
-            )
-            return True  # Still treat as done
-
-    def _move_to_joint_angles(self, target_angles, duration=4.0):
-        """
-        Move the arm to specific joint angles.
-
-        Interpolates from current position to target in joint space.
-        """
-        current = self.current_arm_positions.copy()
-        target = np.array(target_angles)
-
-        # Interpolate in joint space (10 intermediate waypoints for smoothness)
-        n_steps = 10
-        waypoints = []
-        for i in range(1, n_steps + 1):
-            t = i / float(n_steps)
-            wp = current + t * (target - current)
-            waypoints.append(wp)
-
-        return self._send_joint_trajectory_blocking(waypoints, duration)
-
-    def _move_to_cartesian(self, target_pos_world, orientation=None, duration=3.0):
-        """
-        Move end-effector to a Cartesian position in world frame.
-
-        Uses IK with Cartesian interpolation from current EE position.
-        """
-        if self.ik_solver is None:
-            self.get_logger().error('IK solver not initialized!')
-            return False
-
-        if orientation is None:
-            orientation = self.grasp_orientation
-
-        # Get current EE position from FK
-        current_ee = self.ik_solver.forward_kinematics(self.current_arm_positions)
-        start_pos = current_ee.translation.copy()
-
-        target_pos = np.array(target_pos_world)
-
-        # Interpolate in Cartesian space
-        n_steps = 10
-        q_prev = self.current_arm_positions.copy()
-        waypoints = []
-
-        for i in range(1, n_steps + 1):
-            t = i / float(n_steps)
-            wp_pos = start_pos + t * (target_pos - start_pos)
-
-            success, q_sol = self.ik_solver.solve(
-                wp_pos, orientation, q_prev,
-                max_iterations=300, tolerance=1e-3, damping=1e-6
-            )
-            if not success:
-                success, q_sol = self.ik_solver.solve_position_only(
-                    wp_pos, orientation, q_prev,
-                    max_iterations=300, tolerance=1e-3
-                )
-                if not success:
-                    self.get_logger().warn(
-                        f'IK failed at step {i}/{n_steps}: pos={wp_pos}'
-                    )
-                    return False
-
-            waypoints.append(q_sol)
-            q_prev = q_sol.copy()
-
-        return self._send_joint_trajectory_blocking(waypoints, duration)
-
-    def _send_gripper_blocking(self, position, effort=100.0):
-        """Send gripper command and wait for completion."""
-        if self.gripper_controller is None:
-            self.get_logger().error('Gripper controller not initialized!')
-            return False
-
-        from control_msgs.action import GripperCommand
-
-        if not self.gripper_controller.action_client.server_is_ready():
-            self.get_logger().error('Gripper action server not ready!')
-            return False
-
-        goal = GripperCommand.Goal()
-        goal.command.position = position
-        goal.command.max_effort = effort
-
-        self.get_logger().info(f'Gripper command: position={position:.2f}')
-
-        send_future = self.gripper_controller.action_client.send_goal_async(goal)
-        while not send_future.done():
-            time.sleep(0.05)
-
-        goal_handle = send_future.result()
-        if not goal_handle.accepted:
-            self.get_logger().error('Gripper goal rejected!')
-            return False
-
-        result_future = goal_handle.get_result_async()
-        while not result_future.done():
-            time.sleep(0.05)
-
-        time.sleep(0.5)  # Let gripper settle
+        rfut = gh.get_result_async()
+        while not rfut.done():
+            time.sleep(0.02)
         return True
 
-    def _open_gripper(self):
-        """Open gripper fully."""
-        return self._send_gripper_blocking(0.0)
+    def _move_joints(self, target, dur=1.5):
+        """Joint-space interpolation (5 waypoints)."""
+        cur = self.current_arm_positions.copy()
+        tgt = np.array(target)
+        wps = [cur + float(i)/5 * (tgt - cur) for i in range(1, 6)]
+        return self._send_traj(wps, dur)
 
-    def _close_gripper(self):
-        """Close gripper for grasping."""
-        close_pos = self.get_parameter('gripper.close_position').value
-        effort = self.get_parameter('gripper.max_effort').value
-        return self._send_gripper_blocking(close_pos, effort)
+    def _move_to_pose(self, pos, dur=1.5):
+        """IK + joint-space move. Uses solve_robust (6D → 5D Z-down → pos-only)."""
+        if self.ik_solver is None:
+            return False
+        ok, q = self.ik_solver.solve_robust(
+            np.array(pos), self.grasp_R,
+            self.current_arm_positions.copy(), 300, 2e-3)
+        ee = self.ik_solver.forward_kinematics(q)
+        err = np.linalg.norm(ee.translation - np.array(pos))
 
-    # ==================== STATE MACHINE THREAD ====================
+        # Check orientation: tool Z should point down
+        tool_z = ee.rotation[:, 2]
+        z_err = np.linalg.norm(tool_z - np.array([0, 0, -1]))
 
-    def _state_machine_thread(self):
-        """Background thread running the state machine."""
-        self.get_logger().info('State machine thread: waiting 15s for Gazebo + controllers...')
-        time.sleep(15.0)  # Wait for Gazebo, controllers, sensors to fully initialize
+        if err > 0.008:
+            # Try Z-axis-down fallback (5D: position + vertical orientation)
+            self._log(f'Robust IK err={err:.4f}, trying Z-down 5D...')
+            ok2, q2 = self.ik_solver.solve_z_axis_down(
+                np.array(pos),
+                self.current_arm_positions.copy(), 500, 2e-3)
+            ee2 = self.ik_solver.forward_kinematics(q2)
+            err2 = np.linalg.norm(ee2.translation - np.array(pos))
+            z_err2 = np.linalg.norm(ee2.rotation[:, 2] - np.array([0, 0, -1]))
+            if err2 < err:
+                q, ee, err, z_err = q2, ee2, err2, z_err2
+            if err > 0.01:
+                self.get_logger().warn(
+                    f'IK FAIL target={np.round(pos,3)} '
+                    f'achieved={np.round(ee.translation,3)} err={err:.4f} z_err={z_err:.4f}')
+                return False
+        self._log(f'IK OK target={np.round(pos,3)} '
+                  f'achieved={np.round(ee.translation,3)} err={err:.4f} z_err={z_err:.4f}')
+        return self._move_joints(q, dur)
 
-        # Initialize system
-        if not self._initialize_system():
-            self.get_logger().error('System initialization failed! Exiting SM.')
+    def _move_cartesian(self, target_pos, dur=1.5):
+        """Short Cartesian interpolation (fine motion, preserves vertical orientation)."""
+        if self.ik_solver is None:
+            return False
+        ce = self.ik_solver.forward_kinematics(self.current_arm_positions)
+        sp = ce.translation.copy()
+        tp = np.array(target_pos)
+        dist = np.linalg.norm(tp - sp)
+        n = max(3, min(int(dist / 0.015), 10))
+        qp = self.current_arm_positions.copy()
+        wps = []
+        for i in range(1, n + 1):
+            t = i / float(n)
+            p = sp + t * (tp - sp)
+            # Try 6D first, then Z-down 5D fallback
+            ok, q = self.ik_solver.solve(p, self.grasp_R, qp, 200, 2e-3, 1e-4)
+            if not ok:
+                ok, q = self.ik_solver.solve_z_axis_down(p, qp, 200, 3e-3)
+                if not ok:
+                    self.get_logger().warn(f'Cart IK fail step {i}/{n}')
+                    return False
+            wps.append(q)
+            qp = q.copy()
+        return self._send_traj(wps, dur)
+
+    # ---- Gripper helpers ----
+    def _gripper_cmd(self, pos, effort=100.0):
+        from control_msgs.action import GripperCommand
+        if self.gripper_controller is None:
+            return False
+        if not self.gripper_controller.action_client.server_is_ready():
+            return False
+        g = GripperCommand.Goal()
+        g.command.position = pos
+        g.command.max_effort = effort
+        fut = self.gripper_controller.action_client.send_goal_async(g)
+        while not fut.done():
+            time.sleep(0.02)
+        gh = fut.result()
+        if not gh.accepted:
+            return False
+        rfut = gh.get_result_async()
+        while not rfut.done():
+            time.sleep(0.02)
+        time.sleep(0.25)
+        return True
+
+    def _open(self):
+        return self._gripper_cmd(0.0)
+
+    def _close(self):
+        return self._gripper_cmd(
+            self.get_parameter('gripper.close_position').value,
+            self.get_parameter('gripper.max_effort').value)
+
+    # ============================================================
+    # STATE MACHINE
+    # ============================================================
+    def _sm_loop(self):
+        self._log('SM: waiting 5 s for Gazebo + controllers...')
+        time.sleep(5.0)
+        if not self._init_system():
+            self.get_logger().error('Init failed!')
             return
-
-        # Run state machine loop
         while rclpy.ok():
             try:
-                if self.state == PickAndPlaceState.INITIALIZE:
-                    self._state_initialize()
-                elif self.state == PickAndPlaceState.OBSERVE:
-                    self._state_observe()
-                elif self.state == PickAndPlaceState.PRE_GRASP:
-                    self._state_pre_grasp()
-                elif self.state == PickAndPlaceState.GRASP:
-                    self._state_grasp()
-                elif self.state == PickAndPlaceState.VERIFY_GRASP:
-                    self._state_verify_grasp()
-                elif self.state == PickAndPlaceState.TRANSIT_TO_PLACE:
-                    self._state_transit_to_place()
-                elif self.state == PickAndPlaceState.PLACE:
-                    self._state_place()
-                elif self.state == PickAndPlaceState.VERIFY_PLACE:
-                    self._state_verify_place()
-                elif self.state == PickAndPlaceState.RECOVER_DROP:
-                    self._state_recover_drop()
-                elif self.state == PickAndPlaceState.COMPLETE:
-                    self._state_complete()
-                    break  # Done
-                elif self.state == 'IDLE':
-                    break  # Done
-                else:
-                    time.sleep(0.5)
+                st = self.state
+                if   st == S.INITIALIZE:   self._do_init()
+                elif st == S.OBSERVE:      self._do_observe()
+                elif st == S.PRE_GRASP:    self._do_pre_grasp()
+                elif st == S.GRASP:        self._do_grasp()
+                elif st == S.VERIFY_GRASP: self._do_verify_grasp()
+                elif st == S.TRANSIT:      self._do_transit()
+                elif st == S.PLACE:        self._do_place()
+                elif st == S.VERIFY_PLACE: self._do_verify_place()
+                elif st == S.RECOVER_DROP: self._do_recover()
+                elif st == S.COMPLETE:     self._do_complete(); break
+                elif st == 'IDLE':         break
+                else:                      time.sleep(0.1)
             except Exception as e:
-                self.get_logger().error(f'State machine error in {self.state}: {e}')
-                import traceback
-                self.get_logger().error(traceback.format_exc())
-                time.sleep(2.0)
+                self.get_logger().error(f'SM error [{self.state}]: {e}')
+                import traceback; self.get_logger().error(traceback.format_exc())
+                time.sleep(1.0)
 
-    def _initialize_system(self):
-        """Initialize IK solver, gripper controller, etc."""
-        self.get_logger().info('Starting system initialization...')
-
-        # Wait for robot_description
-        robot_desc = ''
-        for attempt in range(30):
+    def _init_system(self):
+        # Wait for robot_description (max 10 s)
+        desc = ''
+        for i in range(20):
             try:
-                robot_desc = self.get_parameter('robot_description').value
-                if robot_desc:
-                    break
-            except Exception:
-                pass
-            self.get_logger().info(f'Waiting for robot_description... ({attempt+1})')
-            time.sleep(1.0)
-
-        if not robot_desc:
+                desc = self.get_parameter('robot_description').value
+                if desc: break
+            except Exception: pass
+            time.sleep(0.5)
+        if not desc:
             self.get_logger().error('No robot_description!')
             return False
 
-        # Initialize IK solver
+        # IK solver — targets tool_frame (fingertip) directly
         try:
-            self.ik_solver = IKSolver(robot_desc, 'end_effector_link')
-            self.get_logger().info('IK solver initialized.')
+            self.ik_solver = IKSolver(desc, 'tool_frame')
+            self._log('IK solver OK (tool_frame)')
         except Exception as e:
-            self.get_logger().error(f'IK solver init failed: {e}')
+            self.get_logger().error(f'IK init: {e}')
             return False
 
-        # Initialize gripper controller
+        # Gripper
         self.gripper_controller = GripperController(
             node=self,
             open_position=self.get_parameter('gripper.open_position').value,
             close_position=self.get_parameter('gripper.close_position').value,
             max_effort=self.get_parameter('gripper.max_effort').value,
-            wait_after_command=self.get_parameter('gripper.wait_after_command').value,
-        )
+            wait_after_command=self.get_parameter('gripper.wait_after_command').value)
 
-        # Initialize verifiers
+        # Grasp verifier - only 1 check required (finger gap)
         self.grasp_verifier = GraspVerifier(
             finger_min_expected=self.get_parameter('grasp.finger_min_expected').value,
             finger_max_expected=self.get_parameter('grasp.finger_max_expected').value,
             position_tolerance=self.get_parameter('grasp.position_tolerance').value,
-            required_checks=self.get_parameter('grasp.required_checks').value,
-        )
+            required_checks=self.get_parameter('grasp.required_checks').value)
         self.drop_detector = DropDetector(
             finger_min_threshold=self.get_parameter('drop.finger_min_threshold').value,
-            finger_max_threshold=self.get_parameter('drop.finger_max_threshold').value,
-        )
+            finger_max_threshold=self.get_parameter('drop.finger_max_threshold').value)
 
-        # Wait for action servers
-        self.get_logger().info('Waiting for arm trajectory action server...')
-        if not self.arm_action_client.wait_for_server(timeout_sec=30.0):
-            self.get_logger().error('Arm trajectory action server not available!')
+        # Wait action servers (max 15 s each)
+        if not self.arm_ac.wait_for_server(timeout_sec=15.0):
+            self.get_logger().error('Arm action server timeout!')
             return False
-        self.get_logger().info('Arm action server ready.')
-
-        self.get_logger().info('Waiting for gripper action server...')
-        if not self.gripper_controller.wait_for_server(timeout_sec=30.0):
-            self.get_logger().error('Gripper action server not available!')
+        self._log('Arm server OK')
+        if not self.gripper_controller.wait_for_server(timeout_sec=15.0):
+            self.get_logger().error('Gripper server timeout!')
             return False
-        self.get_logger().info('Gripper action server ready.')
+        self._log('Gripper server OK')
 
-        # Wait for joint states
-        self.get_logger().info('Waiting for joint states...')
-        for _ in range(50):
+        # Wait for joint states (max 5 s)
+        for _ in range(25):
             if self.latest_joint_state is not None:
                 break
             time.sleep(0.2)
-
         if self.latest_joint_state is None:
             self.get_logger().error('No joint states!')
             return False
 
-        # ---- FK VERIFICATION: log EE positions for all named waypoints ----
-        self.get_logger().info('=' * 50)
-        self.get_logger().info('FK VERIFICATION of waypoints:')
+        # Quick FK verification
         for wp_name in ['home', 'observe']:
-            wp_data = self.waypoints.get(wp_name, {})
-            angles = wp_data.get('joint_angles')
+            wp = self.waypoints.get(wp_name, {})
+            angles = wp.get('joint_angles')
             if angles:
-                q = np.array(angles)
-                ee_pose = self.ik_solver.forward_kinematics(q)
-                pos = ee_pose.translation
-                self.get_logger().info(
-                    f'  {wp_name}: joints={[f"{a:.3f}" for a in angles]} '
-                    f'→ EE position=[{pos[0]:.4f}, {pos[1]:.4f}, {pos[2]:.4f}]'
-                )
-        # Also log current (zero-config) FK
-        q_zero = np.zeros(6)
-        ee_zero = self.ik_solver.forward_kinematics(q_zero)
-        pos_zero = ee_zero.translation
-        self.get_logger().info(
-            f'  zero-config → EE position=[{pos_zero[0]:.4f}, {pos_zero[1]:.4f}, {pos_zero[2]:.4f}]'
-        )
-        self.get_logger().info('=' * 50)
+                ee = self.ik_solver.forward_kinematics(np.array(angles))
+                p = ee.translation
+                self._log(f'FK {wp_name}: tool=[{p[0]:.3f},{p[1]:.3f},{p[2]:.3f}]')
 
-        self.get_logger().info('System initialization complete!')
+        self._log('System ready (IK targets tool_frame = fingertip)')
         return True
 
-    # ==================== STATE IMPLEMENTATIONS ====================
+    # ---- state handlers ----
+    def _do_init(self):
+        home = self.waypoints.get('home', {}).get(
+            'joint_angles', [0.0]*6)
+        self._move_joints(home, dur=1.2)
+        self._transition(S.OBSERVE, 'Home reached')
 
-    def _state_initialize(self):
-        """INITIALIZE: Move to home position using joint angles."""
-        home_config = self.waypoints.get('home', {})
-        home_angles = home_config.get('joint_angles', [0.0, -0.35, 1.4, 0.0, -1.05, 0.0])
-
-        self.get_logger().info(f'Moving to HOME joint angles: {home_angles}')
-        success = self._move_to_joint_angles(home_angles, duration=4.0)
-        time.sleep(1.0)
-
-        if success:
-            self._transition(PickAndPlaceState.OBSERVE,
-                           'Moved to HOME, starting observation')
-        else:
-            self.get_logger().warn('Failed to move to HOME, retrying in 3s...')
-            time.sleep(3.0)
-
-    def _state_observe(self):
-        """OBSERVE: Move to observation position and look for cubes."""
-        observe_config = self.waypoints.get('observe', {})
-        observe_angles = observe_config.get('joint_angles', [0.0, 0.0, 1.57, 0.0, -1.57, 0.0])
-
-        self.get_logger().info(f'Moving to OBSERVE joint angles: {observe_angles}')
-        success = self._move_to_joint_angles(observe_angles, duration=3.0)
-        if not success:
-            self.get_logger().warn('Failed to reach OBSERVE position')
-            time.sleep(2.0)
-            return
-
-        # Wait for perception to stabilize
-        self.get_logger().info('Observing cubes (waiting 3s for perception)...')
-        time.sleep(3.0)
+    def _do_observe(self):
+        obs = self.waypoints.get('observe', {}).get(
+            'joint_angles', [0.0, 0.35, 1.57, 0.0, -1.05, 0.0])
+        self._move_joints(obs, dur=1.0)
+        # Quick settle for perception
+        time.sleep(0.5)
 
         if self.latest_cube_detections is None:
-            self.get_logger().warn('No cube detections yet, waiting...')
-            time.sleep(2.0)
+            self._log('No detections yet, waiting...')
+            time.sleep(1.0)
             return
 
-        # Select next cube
-        selected = self._select_next_cube()
-        if selected is None:
-            total_sorted = sum(self.cubes_sorted.values())
-            if total_sorted >= self.total_cubes:
-                self._transition(PickAndPlaceState.COMPLETE, f'All {self.total_cubes} cubes sorted')
-            else:
-                self.get_logger().warn(f'No unpicked cubes detected ({total_sorted}/{self.total_cubes} sorted), waiting...')
-                time.sleep(3.0)
+        # Check if all done
+        if self.pick_index >= len(self.pick_order):
+            self._transition(S.COMPLETE, 'Sequence complete')
             return
 
-        color, cube_pos = selected
+        sel = self._select_cube()
+        if sel is None:
+            total = sum(self.cubes_sorted.values())
+            self._log(f'No cube for {self.pick_order[self.pick_index]} ({total} sorted)')
+            time.sleep(1.0)
+            return
+
+        color, pos = sel
         self.current_cube_color = color
-        self.current_cube_pos = cube_pos
-
-        # Look up target container
-        container_info = self.cube_mapping.get(color, {})
-        container_pos = container_info.get('container_position')
-        if container_pos:
-            self.current_container_pos = np.array(container_pos)
+        self.current_cube_pos = pos
+        ci = self.cube_mapping.get(color, {})
+        cp = ci.get('container_position')
+        if cp:
+            self.current_container_pos = np.array(cp)
         else:
-            self.get_logger().error(f'No container mapping for {color}!')
+            self.get_logger().error(f'No container for {color}!')
             return
+        self._log(f'Target: {color} cube at {np.round(pos,3)} -> container at {cp}')
+        self._transition(S.PRE_GRASP, f'{color} cube selected')
 
-        self.get_logger().info(
-            f'Selected {color} cube at {cube_pos} → '
-            f'{container_info.get("target_container")} at {container_pos}'
-        )
-        self._transition(PickAndPlaceState.PRE_GRASP, f'Selected {color} cube')
-
-    def _select_next_cube(self):
-        """Select the nearest unpicked cube. Each color can have multiple cubes."""
+    def _select_cube(self):
+        """Select the next cube following R->G->Y->R->G->Y order."""
         if not self.latest_cube_detections:
             return None
+        cmap = {
+            'red':    lambda q: q.x > 0.5,
+            'green':  lambda q: q.y > 0.5,
+            'yellow': lambda q: q.z > 0.5}
 
-        color_map = {
-            'red': lambda q: q.x > 0.5,
-            'green': lambda q: q.y > 0.5,
-            'yellow': lambda q: q.z > 0.5,
-        }
-
-        # Get max cubes per color from mapping
-        max_per_color = {}
-        for color in ['red', 'green', 'yellow']:
-            info = self.cube_mapping.get(color, {})
-            max_per_color[color] = info.get('num_cubes', 2)
-
-        candidates = []
-        for pose in self.latest_cube_detections.poses:
-            for color, check_fn in color_map.items():
-                # Skip colors that have all cubes sorted
-                sorted_count = self.cubes_sorted.get(color, 0)
-                if sorted_count >= max_per_color.get(color, 2):
-                    continue
-                if check_fn(pose.orientation):
-                    pos = np.array([pose.position.x, pose.position.y, pose.position.z])
-                    dist = np.linalg.norm(pos[:2])
-                    candidates.append((color, pos, dist))
-
-        if not candidates:
+        if self.pick_index >= len(self.pick_order):
             return None
 
-        candidates.sort(key=lambda c: c[2])
-        return candidates[0][0], candidates[0][1]
+        target_color = self.pick_order[self.pick_index]
+        check_fn = cmap[target_color]
 
-    def _state_pre_grasp(self):
-        """PRE_GRASP: Open gripper and move above the target cube."""
-        self._open_gripper()
+        # Find all cubes of the target color
+        cands = []
+        for pose in self.latest_cube_detections.poses:
+            if check_fn(pose.orientation):
+                p = np.array([pose.position.x, pose.position.y, pose.position.z])
+                cands.append(p)
 
-        # Pre-grasp: above cube in world frame
-        pre_grasp_z_offset = self.get_parameter('offsets.pre_grasp_z').value
-        pre_grasp_pos = self.current_cube_pos.copy()
-        pre_grasp_pos[2] += pre_grasp_z_offset
+        if not cands:
+            self._log(f'No {target_color} cube found, skipping')
+            self.pick_index += 1
+            return None
 
-        self.get_logger().info(f'Moving to PRE_GRASP at {pre_grasp_pos} (world frame)')
-        success = self._move_to_cartesian(pre_grasp_pos, duration=3.0)
+        # Pick the closest one
+        cands.sort(key=lambda p: np.linalg.norm(p[:2]))
+        self._log(f'Order [{self.pick_index}]: picking {target_color}')
+        return target_color, cands[0]
 
-        if success:
-            self._transition(PickAndPlaceState.GRASP,
-                           f'Positioned above {self.current_cube_color} cube')
-        else:
-            self.get_logger().warn('Pre-grasp failed, returning to OBSERVE')
-            self._transition(PickAndPlaceState.OBSERVE, 'Pre-grasp motion failed')
-
-    def _state_grasp(self):
-        """GRASP: Descend to cube and close gripper."""
-        grasp_z_offset = self.get_parameter('offsets.grasp_z').value
-        grasp_pos = self.current_cube_pos.copy()
-        grasp_pos[2] += grasp_z_offset
-
-        self.get_logger().info(f'Descending to GRASP at {grasp_pos} (world frame)')
-        slow_duration = self.get_parameter('motion.slow_duration').value
-        success = self._move_to_cartesian(grasp_pos, duration=slow_duration)
-
-        if not success:
-            self.get_logger().warn('Grasp descent failed')
-            self._transition(PickAndPlaceState.OBSERVE, 'Grasp descent failed')
-            return
-
-        # Close gripper
-        self._close_gripper()
-        time.sleep(1.0)
-
-        self._transition(PickAndPlaceState.VERIFY_GRASP, 'Gripper closed, verifying')
-
-    def _state_verify_grasp(self):
-        """VERIFY_GRASP: Lift up and check if cube is held."""
-        post_grasp_z = self.get_parameter('offsets.post_grasp_z').value
-        lift_pos = self.current_cube_pos.copy()
-        lift_pos[2] += post_grasp_z
-
-        self.get_logger().info(f'Lifting to {lift_pos} (world frame)')
-        self._move_to_cartesian(lift_pos, duration=2.0)
-        time.sleep(1.5)
-
-        # Verify grasp
-        success, checks, reason = self.grasp_verifier.verify_grasp(
-            self.current_finger_pos,
-            self.latest_cube_detections,
-            self.current_cube_color,
-            self.current_cube_pos,
-        )
-
-        self.get_logger().info(f'Grasp verification: {success}, {checks}/2 checks, {reason}')
-
-        if success:
-            self._transition(PickAndPlaceState.TRANSIT_TO_PLACE,
-                           f'Grasp verified ({checks} checks)')
+    def _do_pre_grasp(self):
+        self._open()
+        off = self.get_parameter('offsets.pre_grasp_z').value
+        pos = self.current_cube_pos.copy()
+        pos[2] += off
+        self._log(f'Pre-grasp tool target: {np.round(pos,3)} (fingers at z={pos[2]:.3f})')
+        ok = self._move_to_pose(pos, dur=0.8)
+        if ok:
+            self._transition(S.GRASP, 'Above cube')
         else:
             self.retry_count += 1
             if self.retry_count >= self.max_retries:
-                self.get_logger().error(f'Max retries for {self.current_cube_color}')
-                self.cubes_sorted.add(self.current_cube_color)
+                self.pick_index += 1  # skip this cube in sequence
                 self.retry_count = 0
-                self._transition(PickAndPlaceState.OBSERVE, 'Max retries, skipping')
+                self._transition(S.OBSERVE, 'Max retries, skip cube')
             else:
-                self._open_gripper()
-                self._transition(PickAndPlaceState.OBSERVE,
-                               f'Grasp failed, retry {self.retry_count}/{self.max_retries}')
+                # Stay close — try again without retreating to observe
+                self._log(f'Pre-grasp retry {self.retry_count}/{self.max_retries}')
+                time.sleep(0.3)
 
-    def _state_transit_to_place(self):
-        """TRANSIT_TO_PLACE: Move above container."""
-        container_pos = self.current_container_pos.copy()
+    def _do_grasp(self):
+        off = self.get_parameter('offsets.grasp_z').value
+        pos = self.current_cube_pos.copy()
+        pos[2] += off
+        self._log(f'Grasp tool target: {np.round(pos,3)} (fingers at z={pos[2]:.3f})')
+        ok = self._move_cartesian(pos, dur=0.7)
+        if not ok:
+            ok = self._move_to_pose(pos, dur=0.7)
+            if not ok:
+                self._transition(S.OBSERVE, 'Grasp descent fail')
+                return
+        time.sleep(0.3)  # settle before closing
+        self._close()
+        time.sleep(0.5)  # wait for gripper to fully close/stall
 
-        # Transit height: safe Z above table
-        transit_z = self.waypoints.get('transit_height_z', 1.05)
-        transit_pos = np.array([container_pos[0], container_pos[1], transit_z])
-
-        self.get_logger().info(f'Transit to container at {transit_pos} (world frame)')
-        success = self._move_to_cartesian(transit_pos, duration=3.0)
-
-        # Drop check
-        if self.drop_detector.check_for_drop(self.current_finger_pos):
-            self.get_logger().warn('DROP DETECTED during transit!')
-            self._transition(PickAndPlaceState.RECOVER_DROP, 'Drop during transit')
+        # Immediate grasp check BEFORE lifting
+        finger_ok = self.grasp_verifier.check_finger_gap(self.current_finger_pos)
+        self._log(f'Immediate grasp check: finger={self.current_finger_pos:.3f}, '
+                  f'range=[{self.grasp_verifier.finger_min:.2f},{self.grasp_verifier.finger_max:.2f}], '
+                  f'ok={finger_ok}')
+        if not finger_ok:
+            # Don't even lift — open and retry immediately
+            self.retry_count += 1
+            self._open()
+            if self.retry_count >= self.max_retries:
+                self.pick_index += 1
+                self.retry_count = 0
+                self._transition(S.OBSERVE, f'Grasp failed {self.max_retries}x, skip')
+            else:
+                self._log(f'Empty grasp, retry {self.retry_count}/{self.max_retries}')
+                self._transition(S.PRE_GRASP, 'Retry grasp')
             return
 
-        if not success:
-            self._transition(PickAndPlaceState.RECOVER_DROP, 'Transit motion failed')
-            return
+        self._transition(S.VERIFY_GRASP, 'Cube in gripper')
 
-        # Pre-place: above container
-        pre_place_z = container_pos[2] + self.get_parameter('offsets.pre_place_z').value
-        pre_place_pos = np.array([container_pos[0], container_pos[1], pre_place_z])
+    def _do_verify_grasp(self):
+        # Lift up
+        off = self.get_parameter('offsets.post_grasp_z').value
+        pos = self.current_cube_pos.copy()
+        pos[2] += off
+        ok = self._move_cartesian(pos, dur=0.7)
+        if not ok:
+            self._move_to_pose(pos, dur=0.7)
+        time.sleep(0.2)
 
-        self._move_to_cartesian(pre_place_pos, duration=2.0)
+        # Check finger gap only (required_checks=1)
+        finger_ok = self.grasp_verifier.check_finger_gap(self.current_finger_pos)
+        self._log(f'Grasp check: finger_pos={self.current_finger_pos:.3f}, ok={finger_ok}')
 
-        if self.drop_detector.check_for_drop(self.current_finger_pos):
-            self.get_logger().warn('DROP above container!')
-            self._transition(PickAndPlaceState.RECOVER_DROP, 'Drop above container')
-            return
-
-        self._transition(PickAndPlaceState.PLACE, 'Above container')
-
-    def _state_place(self):
-        """PLACE: Descend into container and release."""
-        container_pos = self.current_container_pos.copy()
-        place_z = container_pos[2] + self.get_parameter('offsets.place_z').value
-        place_pos = np.array([container_pos[0], container_pos[1], place_z])
-
-        self.get_logger().info(f'Placing at {place_pos} (world frame)')
-        slow_duration = self.get_parameter('motion.slow_duration').value
-        self._move_to_cartesian(place_pos, duration=slow_duration)
-
-        # Release
-        self._open_gripper()
-        time.sleep(0.5)
-
-        # Retreat upward
-        retreat_z = container_pos[2] + self.get_parameter('offsets.pre_place_z').value
-        retreat_pos = np.array([container_pos[0], container_pos[1], retreat_z])
-        self._move_to_cartesian(retreat_pos, duration=2.0)
-
-        self._transition(PickAndPlaceState.VERIFY_PLACE,
-                        f'Released {self.current_cube_color} cube')
-
-    def _state_verify_place(self):
-        """VERIFY_PLACE: Mark cube as sorted."""
-        time.sleep(2.0)
-
-        self.cubes_sorted[self.current_cube_color] = self.cubes_sorted.get(self.current_cube_color, 0) + 1
-        self.retry_count = 0
-        total_sorted = sum(self.cubes_sorted.values())
-        self.get_logger().info(
-            f'{self.current_cube_color} cube sorted! '
-            f'Total: {total_sorted}/{self.total_cubes} ({self.cubes_sorted})'
-        )
-
-        if total_sorted >= self.total_cubes:
-            self._transition(PickAndPlaceState.COMPLETE, f'All {self.total_cubes} cubes sorted')
+        if finger_ok:
+            self.retry_count = 0
+            self._transition(S.TRANSIT, 'Grasp OK')
         else:
-            remaining = self.total_cubes - total_sorted
-            self._transition(PickAndPlaceState.OBSERVE,
-                           f'{remaining} cubes remaining')
+            self.retry_count += 1
+            if self.retry_count >= self.max_retries:
+                self.pick_index += 1  # skip this cube in sequence
+                self.retry_count = 0
+                self._open()
+                self._transition(S.OBSERVE, 'Max retries, skip')
+            else:
+                # Stay close — retry from pre-grasp instead of retreating
+                self._open()
+                self._log(f'Grasp fail retry {self.retry_count}/{self.max_retries}, re-approaching')
+                self._transition(S.PRE_GRASP, 'Retry from pre-grasp')
 
-    def _state_recover_drop(self):
-        """RECOVER_DROP: Return to home and re-observe."""
-        self.get_logger().warn('Running drop recovery...')
-        self._open_gripper()
+    def _do_transit(self):
+        cp = self.current_container_pos.copy()
+        drop_h = self.get_parameter('offsets.drop_height').value
+        above = np.array([cp[0], cp[1], cp[2] + drop_h])
+        self._log(f'Transit to drop pos {np.round(above,3)}')
+        ok = self._move_to_pose(above, dur=0.8)
+        if self.drop_detector.check_for_drop(self.current_finger_pos):
+            self._transition(S.RECOVER_DROP, 'Drop during transit')
+            return
+        if not ok:
+            self._transition(S.RECOVER_DROP, 'Transit fail')
+            return
+        self._transition(S.PLACE, 'Above container, ready to drop')
 
-        home_angles = self.waypoints.get('home', {}).get(
-            'joint_angles', [0.0, -0.35, 1.4, 0.0, -1.05, 0.0]
-        )
-        self._move_to_joint_angles(home_angles, duration=3.0)
-        time.sleep(2.0)
+    def _do_place(self):
+        """Simply open gripper to drop the cube into the container."""
+        cp = self.current_container_pos.copy()
+        drop_h = self.get_parameter('offsets.drop_height').value
+        drop_pos = np.array([cp[0], cp[1], cp[2] + drop_h])
+        self._log(f'Dropping cube at {np.round(drop_pos,3)}')
+        # Open gripper — cube falls into container
+        self._open()
+        time.sleep(0.3)  # wait for cube to settle
+        # Retreat upward
+        retreat_z = cp[2] + self.get_parameter('offsets.pre_place_z').value
+        self._move_to_pose([cp[0], cp[1], retreat_z], dur=0.6)
+        self._transition(S.VERIFY_PLACE, f'Dropped {self.current_cube_color}')
 
-        self._transition(PickAndPlaceState.OBSERVE, 'Recovery done, re-observing')
+    def _do_verify_place(self):
+        time.sleep(0.3)
+        self.cubes_sorted[self.current_cube_color] = \
+            self.cubes_sorted.get(self.current_cube_color, 0) + 1
+        self.retry_count = 0
+        self.pick_index += 1
+        total = sum(self.cubes_sorted.values())
+        self._log(f'{self.current_cube_color} sorted! {total}/{self.total_cubes} {self.cubes_sorted}')
+        if self.pick_index >= len(self.pick_order):
+            self._transition(S.COMPLETE, 'All done')
+        else:
+            self._transition(S.OBSERVE, f'Next: {self.pick_order[self.pick_index]}')
 
-    def _state_complete(self):
-        """COMPLETE: Return to home and log success."""
-        home_angles = self.waypoints.get('home', {}).get(
-            'joint_angles', [0.0, -0.35, 1.4, 0.0, -1.05, 0.0]
-        )
-        self._move_to_joint_angles(home_angles, duration=3.0)
+    def _do_recover(self):
+        self._log('Recovery...')
+        self._open()
+        home = self.waypoints.get('home', {}).get('joint_angles', [0.0]*6)
+        self._move_joints(home, dur=1.5)
+        time.sleep(0.5)
+        self._transition(S.OBSERVE, 'Recovered')
 
-        self.get_logger().info('=' * 60)
-        self.get_logger().info('PICK-AND-PLACE COMPLETE!')
-        self.get_logger().info(f'Sorted: {self.cubes_sorted}')
-        self.get_logger().info('=' * 60)
-
+    def _do_complete(self):
+        home = self.waypoints.get('home', {}).get('joint_angles', [0.0]*6)
+        self._move_joints(home, dur=2.0)
+        self._log('='*50)
+        self._log(f'COMPLETE — sorted {self.cubes_sorted}')
+        self._log('='*50)
         self.state = 'IDLE'
 
 
 def main(args=None):
     rclpy.init(args=args)
     node = PickAndPlaceNode()
-
-    executor = MultiThreadedExecutor(num_threads=4)
-    executor.add_node(node)
-
+    exe = MultiThreadedExecutor(num_threads=4)
+    exe.add_node(node)
     try:
-        executor.spin()
+        exe.spin()
     except KeyboardInterrupt:
         pass
     finally:
         node.destroy_node()
-        try:
-            rclpy.shutdown()
-        except Exception:
-            pass
-
+        try: rclpy.shutdown()
+        except: pass
 
 if __name__ == '__main__':
     main()
