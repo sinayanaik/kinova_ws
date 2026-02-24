@@ -134,7 +134,7 @@ class PickAndPlaceNode(Node):
         # Gripper
         self.declare_parameter('gripper.open_position', 0.0)
         self.declare_parameter('gripper.close_position', 0.8)
-        self.declare_parameter('gripper.command_duration', 1.5)
+        self.declare_parameter('gripper.max_effort', 100.0)
         self.declare_parameter('gripper.wait_after_command', 1.0)
 
         # Grasp verification
@@ -290,7 +290,7 @@ class PickAndPlaceNode(Node):
             node=self,
             open_position=self.get_parameter('gripper.open_position').value,
             close_position=self.get_parameter('gripper.close_position').value,
-            command_duration=self.get_parameter('gripper.command_duration').value,
+            max_effort=self.get_parameter('gripper.max_effort').value,
             wait_after_command=self.get_parameter('gripper.wait_after_command').value,
         )
 

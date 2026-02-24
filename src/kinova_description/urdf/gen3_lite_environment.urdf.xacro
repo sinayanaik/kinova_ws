@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <!-- ==========================================================================
      gen3_lite_environment.urdf.xacro
-     Full scene description: Kinova Gen3 Lite robot mounted on a table, with
-     3 colored cubes, 3 colored containers, and 2 cameras (overhead + side).
-     Uses the official kortex_description xacro macros for the robot model.
+     Robot + table + containers + cameras.
+     CUBES are defined in the SDF world file (not here) because Gazebo Harmonic
+     does not support URDF floating joints.
      ========================================================================== -->
 <robot name="kinova_pick_and_place" xmlns:xacro="http://ros.org/wiki/xacro">
 
@@ -16,7 +16,7 @@
   <!-- ===== Include the official Kinova robot macro ===== -->
   <xacro:include filename="$(find kortex_description)/robots/kortex_robot.xacro" />
 
-  <!-- ===== Initial joint positions (arm starts upright) ===== -->
+  <!-- ===== Initial joint positions ===== -->
   <xacro:arg name="initial_positions_file" default="$(find kortex_description)/config/initial_positions.yaml"/>
   <xacro:property name="initial_positions_file" default="$(arg initial_positions_file)"/>
 
@@ -24,23 +24,17 @@
   <link name="world" />
 
   <!-- ===============================================================
-       TABLE — 0.8m x 0.6m, height 0.75m, brown color
+       TABLE — 0.8m x 0.6m, height 0.75m
        =============================================================== -->
   <link name="table_link">
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.8 0.6 0.05"/>
-      </geometry>
-      <material name="table_brown">
-        <color rgba="0.55 0.35 0.17 1.0"/>
-      </material>
+      <geometry><box size="0.8 0.6 0.05"/></geometry>
+      <material name="table_brown"><color rgba="0.55 0.35 0.17 1.0"/></material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.8 0.6 0.05"/>
-      </geometry>
+      <geometry><box size="0.8 0.6 0.05"/></geometry>
     </collision>
     <inertial>
       <mass value="50.0"/>
@@ -51,7 +45,6 @@
   <joint name="table_to_world" type="fixed">
     <parent link="world"/>
     <child link="table_link"/>
-    <!-- Table top surface at z=0.75m: center of 0.05m thick top at 0.75 - 0.025 = 0.725 -->
     <origin xyz="0.35 0.0 0.725" rpy="0 0 0"/>
   </joint>
   <gazebo reference="table_link">
@@ -64,7 +57,7 @@
     </visual>
   </gazebo>
 
-  <!-- Table legs (visual only, 4 legs) -->
+  <!-- Table legs -->
   <xacro:macro name="table_leg" params="name x y">
     <link name="${name}">
       <visual>
@@ -103,8 +96,7 @@
   <xacro:table_leg name="leg_br" x="0.68" y="-0.27"/>
 
   <!-- ===============================================================
-       ROBOT — Gen3 Lite mounted at one end of the table
-       Robot base at (0, 0, table_top=0.75)
+       ROBOT — Gen3 Lite mounted at table surface
        =============================================================== -->
   <xacro:load_robot
     parent="world"
@@ -134,74 +126,7 @@
   </xacro:load_robot>
 
   <!-- ===============================================================
-       CUBES — 3 colored cubes on the table surface
-       Table surface z=0.75, cube half-height=0.02, so cube center z=0.77
-       =============================================================== -->
-  <xacro:macro name="colored_cube" params="name x y color_r color_g color_b mass:=0.05">
-    <link name="${name}">
-      <visual>
-        <origin xyz="0 0 0" rpy="0 0 0"/>
-        <geometry><box size="0.04 0.04 0.04"/></geometry>
-        <material name="${name}_mat">
-          <color rgba="${color_r} ${color_g} ${color_b} 1.0"/>
-        </material>
-      </visual>
-      <collision>
-        <origin xyz="0 0 0" rpy="0 0 0"/>
-        <geometry><box size="0.04 0.04 0.04"/></geometry>
-      </collision>
-      <inertial>
-        <mass value="${mass}"/>
-        <origin xyz="0 0 0" rpy="0 0 0"/>
-        <!-- Inertia of a uniform box: I = m/12*(b^2+c^2) -->
-        <inertia ixx="1.333e-05" ixy="0" ixz="0"
-                 iyy="1.333e-05" iyz="0"
-                 izz="1.333e-05"/>
-      </inertial>
-    </link>
-    <joint name="${name}_joint" type="floating">
-      <parent link="world"/>
-      <child link="${name}"/>
-      <origin xyz="${x} ${y} 0.77" rpy="0 0 0"/>
-    </joint>
-    <gazebo reference="${name}">
-      <visual>
-        <material>
-          <ambient>${color_r} ${color_g} ${color_b} 1</ambient>
-          <diffuse>${color_r} ${color_g} ${color_b} 1</diffuse>
-          <specular>0.1 0.1 0.1 1</specular>
-        </material>
-      </visual>
-      <collision>
-        <surface>
-          <friction>
-            <ode>
-              <mu>1.0</mu>
-              <mu2>1.0</mu2>
-            </ode>
-          </friction>
-          <contact>
-            <ode>
-              <kp>1000000</kp>
-              <kd>100</kd>
-              <min_depth>0.001</min_depth>
-            </ode>
-          </contact>
-        </surface>
-      </collision>
-    </gazebo>
-  </xacro:macro>
-
-  <!-- Red cube -->
-  <xacro:colored_cube name="red_cube"    x="0.35" y="0.05"  color_r="1.0" color_g="0.0" color_b="0.0"/>
-  <!-- Green cube -->
-  <xacro:colored_cube name="green_cube"  x="0.40" y="-0.05" color_r="0.0" color_g="1.0" color_b="0.0"/>
-  <!-- Yellow cube -->
-  <xacro:colored_cube name="yellow_cube" x="0.32" y="-0.08" color_r="1.0" color_g="1.0" color_b="0.0"/>
-
-  <!-- ===============================================================
-       CONTAINERS — 3 open-top boxes (static), mismatched colors
-       Placed in an arc on the opposite side from the cubes
+       CONTAINERS — 3 open-top boxes (STATIC, fixed to world)
        =============================================================== -->
   <xacro:macro name="container_box" params="name x y color_r color_g color_b">
     <!-- Container floor -->
@@ -227,7 +152,6 @@
       <origin xyz="${x} ${y} 0.7525" rpy="0 0 0"/>
     </joint>
 
-    <!-- Container walls (4 walls) -->
     <!-- Front wall (+x) -->
     <link name="${name}_wall_front">
       <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><box size="0.005 0.08 0.04"/></geometry>
@@ -281,45 +205,35 @@
     </joint>
 
     <!-- Gazebo properties for all container parts -->
-    <gazebo reference="${name}_floor">
-      <static>true</static>
+    <gazebo reference="${name}_floor"><static>true</static>
       <visual><material><ambient>${color_r} ${color_g} ${color_b} 1</ambient>
-        <diffuse>${color_r} ${color_g} ${color_b} 1</diffuse></material></visual>
-    </gazebo>
-    <gazebo reference="${name}_wall_front">
-      <static>true</static>
+        <diffuse>${color_r} ${color_g} ${color_b} 1</diffuse></material></visual></gazebo>
+    <gazebo reference="${name}_wall_front"><static>true</static>
       <visual><material><ambient>${color_r} ${color_g} ${color_b} 1</ambient>
-        <diffuse>${color_r} ${color_g} ${color_b} 1</diffuse></material></visual>
-    </gazebo>
-    <gazebo reference="${name}_wall_back">
-      <static>true</static>
+        <diffuse>${color_r} ${color_g} ${color_b} 1</diffuse></material></visual></gazebo>
+    <gazebo reference="${name}_wall_back"><static>true</static>
       <visual><material><ambient>${color_r} ${color_g} ${color_b} 1</ambient>
-        <diffuse>${color_r} ${color_g} ${color_b} 1</diffuse></material></visual>
-    </gazebo>
-    <gazebo reference="${name}_wall_left">
-      <static>true</static>
+        <diffuse>${color_r} ${color_g} ${color_b} 1</diffuse></material></visual></gazebo>
+    <gazebo reference="${name}_wall_left"><static>true</static>
       <visual><material><ambient>${color_r} ${color_g} ${color_b} 1</ambient>
-        <diffuse>${color_r} ${color_g} ${color_b} 1</diffuse></material></visual>
-    </gazebo>
-    <gazebo reference="${name}_wall_right">
-      <static>true</static>
+        <diffuse>${color_r} ${color_g} ${color_b} 1</diffuse></material></visual></gazebo>
+    <gazebo reference="${name}_wall_right"><static>true</static>
       <visual><material><ambient>${color_r} ${color_g} ${color_b} 1</ambient>
-        <diffuse>${color_r} ${color_g} ${color_b} 1</diffuse></material></visual>
-    </gazebo>
+        <diffuse>${color_r} ${color_g} ${color_b} 1</diffuse></material></visual></gazebo>
   </xacro:macro>
 
-  <!-- Blue container (for red cube) — placed at arc position -->
+  <!-- Blue container (for red cube) -->
   <xacro:container_box name="blue_container"   x="0.50" y="0.20"  color_r="0.0" color_g="0.0" color_b="1.0"/>
-  <!-- Orange container (for green cube) — placed at arc center -->
+  <!-- Orange container (for green cube) -->
   <xacro:container_box name="orange_container" x="0.55" y="0.0"   color_r="1.0" color_g="0.5" color_b="0.0"/>
-  <!-- Purple container (for yellow cube) — placed at arc position -->
+  <!-- Purple container (for yellow cube) -->
   <xacro:container_box name="purple_container" x="0.50" y="-0.20" color_r="0.6" color_g="0.0" color_b="0.8"/>
 
   <!-- ===============================================================
-       CAMERAS — Overhead and Side cameras using Gazebo sensor plugins
+       CAMERAS — Overhead and Side cameras
        =============================================================== -->
 
-  <!-- Overhead Camera — above table center, pointing straight down -->
+  <!-- Overhead Camera — above table, pointing down -->
   <link name="camera_overhead_link">
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -335,30 +249,16 @@
   <joint name="camera_overhead_joint" type="fixed">
     <parent link="world"/>
     <child link="camera_overhead_link"/>
-    <!-- 1.5m above table (table at 0.75m), so z=2.25m, centered over workspace -->
     <origin xyz="0.35 0.0 2.25" rpy="0 1.5708 0"/>
   </joint>
   <gazebo reference="camera_overhead_link">
     <sensor name="camera_overhead" type="camera">
       <camera>
         <horizontal_fov>1.047</horizontal_fov>
-        <image>
-          <width>640</width>
-          <height>480</height>
-          <format>RGB_INT8</format>
-        </image>
-        <clip>
-          <near>0.1</near>
-          <far>5.0</far>
-        </clip>
+        <image><width>640</width><height>480</height><format>RGB_INT8</format></image>
+        <clip><near>0.1</near><far>5.0</far></clip>
         <lens>
-          <intrinsics>
-            <fx>554.25</fx>
-            <fy>554.25</fy>
-            <cx>320.0</cx>
-            <cy>240.0</cy>
-            <s>0</s>
-          </intrinsics>
+          <intrinsics><fx>554.25</fx><fy>554.25</fy><cx>320.0</cx><cy>240.0</cy><s>0</s></intrinsics>
         </lens>
       </camera>
       <always_on>1</always_on>
@@ -368,7 +268,7 @@
     </sensor>
   </gazebo>
 
-  <!-- Side Camera — to the side of the table, pointing horizontally -->
+  <!-- Side Camera — to the side of the table -->
   <link name="camera_side_link">
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -384,30 +284,16 @@
   <joint name="camera_side_joint" type="fixed">
     <parent link="world"/>
     <child link="camera_side_link"/>
-    <!-- Side camera: 1.0m to the side (-Y), 0.5m above table, pointing toward center (+Y) -->
     <origin xyz="0.35 -1.0 1.25" rpy="0 0 1.5708"/>
   </joint>
   <gazebo reference="camera_side_link">
     <sensor name="camera_side" type="camera">
       <camera>
         <horizontal_fov>1.047</horizontal_fov>
-        <image>
-          <width>640</width>
-          <height>480</height>
-          <format>RGB_INT8</format>
-        </image>
-        <clip>
-          <near>0.1</near>
-          <far>5.0</far>
-        </clip>
+        <image><width>640</width><height>480</height><format>RGB_INT8</format></image>
+        <clip><near>0.1</near><far>5.0</far></clip>
         <lens>
-          <intrinsics>
-            <fx>554.25</fx>
-            <fy>554.25</fy>
-            <cx>320.0</cx>
-            <cy>240.0</cy>
-            <s>0</s>
-          </intrinsics>
+          <intrinsics><fx>554.25</fx><fy>554.25</fy><cx>320.0</cx><cy>240.0</cy><s>0</s></intrinsics>
         </lens>
       </camera>
       <always_on>1</always_on>

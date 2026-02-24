@@ -113,7 +113,7 @@ def generate_launch_description():
     spawn_gripper_controller = Node(
         package='controller_manager',
         executable='spawner',
-        arguments=['gripper_trajectory_controller', '--controller-manager', '/controller_manager'],
+        arguments=['gripper_controller', '--controller-manager', '/controller_manager'],
         output='screen',
     )
 

@@ -157,7 +157,7 @@
        <!-- </xacro:unless> -->
       <!-- </xacro:unless> -->
       <!--<xacro:if value="${moveit_active}">-->
-      <xacro:unless value="${use_fake_hardware}">
+      <xacro:unless value="${use_fake_hardware or sim_gazebo}">
         <joint name="${prefix}right_finger_bottom_joint">
           <command_interface name="position"/>
           <state_interface name="position"/>

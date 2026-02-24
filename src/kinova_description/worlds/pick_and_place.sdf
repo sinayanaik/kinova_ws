@@ -1,13 +1,14 @@
 <?xml version="1.0" ?>
 <!-- ==========================================================================
      pick_and_place.sdf
-     Gazebo Harmonic world file: physics settings, sun, and ground plane.
-     The robot model and environment objects are spawned via the URDF/launch.
+     Gazebo Harmonic world: ground plane, lighting, physics, and 3 colored cubes.
+     Cubes are separate models with high friction for realistic grasping.
+     (Robot, table, containers are spawned from URDF via ros_gz_sim create)
      ========================================================================== -->
 <sdf version="1.9">
   <world name="pick_and_place_world">
 
-    <!-- Physics engine configuration -->
+    <!-- Physics: ODE solver, 1000 Hz -->
     <physics name="default_physics" type="ode">
       <max_step_size>0.001</max_step_size>
       <real_time_factor>1.0</real_time_factor>
@@ -21,34 +22,26 @@
         <constraints>
           <cfm>0.0</cfm>
           <erp>0.2</erp>
-          <contact_max_correcting_vel>100.0</contact_max_correcting_vel>
+          <contact_max_correcting_vel>100</contact_max_correcting_vel>
           <contact_surface_layer>0.001</contact_surface_layer>
         </constraints>
       </ode>
     </physics>
 
-    <!-- Scene lighting -->
+    <!-- Lighting -->
     <light type="directional" name="sun">
       <cast_shadows>true</cast_shadows>
       <pose>0 0 10 0 0 0</pose>
       <diffuse>0.8 0.8 0.8 1</diffuse>
-      <specular>0.2 0.2 0.2 1</specular>
-      <attenuation>
-        <range>1000</range>
-        <constant>0.9</constant>
-        <linear>0.01</linear>
-        <quadratic>0.001</quadratic>
-      </attenuation>
+      <specular>0.3 0.3 0.3 1</specular>
       <direction>-0.5 0.1 -0.9</direction>
     </light>
-
-    <!-- Additional fill light for better camera visibility -->
     <light type="directional" name="fill_light">
       <cast_shadows>false</cast_shadows>
-      <pose>0 0 10 0 0 0</pose>
+      <pose>2 -2 5 0 0 0</pose>
       <diffuse>0.4 0.4 0.4 1</diffuse>
-      <specular>0.05 0.05 0.05 1</specular>
-      <direction>0.5 -0.3 -0.7</direction>
+      <specular>0.1 0.1 0.1 1</specular>
+      <direction>0.3 0.4 -0.8</direction>
     </light>
 
     <!-- Ground plane -->
@@ -57,24 +50,139 @@
       <link name="link">
         <collision name="collision">
           <geometry>
-            <plane>
-              <normal>0 0 1</normal>
-              <size>10 10</size>
-            </plane>
+            <plane><normal>0 0 1</normal><size>100 100</size></plane>
           </geometry>
         </collision>
         <visual name="visual">
           <geometry>
-            <plane>
-              <normal>0 0 1</normal>
-              <size>10 10</size>
-            </plane>
+            <plane><normal>0 0 1</normal><size>100 100</size></plane>
           </geometry>
           <material>
-            <ambient>0.7 0.7 0.7 1</ambient>
-            <diffuse>0.7 0.7 0.7 1</diffuse>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
           </material>
         </visual>
+      </link>
+    </model>
+
+    <!-- ===============================================================
+         RED CUBE — 0.04m, on table at (0.35, 0.05)
+         Table surface is at z=0.75, cube half-height 0.02, so center z=0.77
+         =============================================================== -->
+    <model name="red_cube">
+      <pose>0.35 0.05 0.77 0 0 0</pose>
+      <link name="cube_link">
+        <inertial>
+          <mass>0.05</mass>
+          <inertia>
+            <ixx>1.333e-05</ixx><ixy>0</ixy><ixz>0</ixz>
+            <iyy>1.333e-05</iyy><iyz>0</iyz>
+            <izz>1.333e-05</izz>
+          </inertia>
+        </inertial>
+        <visual name="visual">
+          <geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+          <material>
+            <ambient>1.0 0.0 0.0 1</ambient>
+            <diffuse>1.0 0.0 0.0 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+          <surface>
+            <friction>
+              <ode><mu>1.0</mu><mu2>1.0</mu2></ode>
+            </friction>
+            <contact>
+              <ode>
+                <kp>1000000</kp>
+                <kd>100</kd>
+                <min_depth>0.001</min_depth>
+              </ode>
+            </contact>
+          </surface>
+        </collision>
+      </link>
+    </model>
+
+    <!-- ===============================================================
+         GREEN CUBE — 0.04m, on table at (0.40, -0.05)
+         =============================================================== -->
+    <model name="green_cube">
+      <pose>0.40 -0.05 0.77 0 0 0</pose>
+      <link name="cube_link">
+        <inertial>
+          <mass>0.05</mass>
+          <inertia>
+            <ixx>1.333e-05</ixx><ixy>0</ixy><ixz>0</ixz>
+            <iyy>1.333e-05</iyy><iyz>0</iyz>
+            <izz>1.333e-05</izz>
+          </inertia>
+        </inertial>
+        <visual name="visual">
+          <geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+          <material>
+            <ambient>0.0 1.0 0.0 1</ambient>
+            <diffuse>0.0 1.0 0.0 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+          <surface>
+            <friction>
+              <ode><mu>1.0</mu><mu2>1.0</mu2></ode>
+            </friction>
+            <contact>
+              <ode>
+                <kp>1000000</kp>
+                <kd>100</kd>
+                <min_depth>0.001</min_depth>
+              </ode>
+            </contact>
+          </surface>
+        </collision>
+      </link>
+    </model>
+
+    <!-- ===============================================================
+         YELLOW CUBE — 0.04m, on table at (0.32, -0.08)
+         =============================================================== -->
+    <model name="yellow_cube">
+      <pose>0.32 -0.08 0.77 0 0 0</pose>
+      <link name="cube_link">
+        <inertial>
+          <mass>0.05</mass>
+          <inertia>
+            <ixx>1.333e-05</ixx><ixy>0</ixy><ixz>0</ixz>
+            <iyy>1.333e-05</iyy><iyz>0</iyz>
+            <izz>1.333e-05</izz>
+          </inertia>
+        </inertial>
+        <visual name="visual">
+          <geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+          <material>
+            <ambient>1.0 1.0 0.0 1</ambient>
+            <diffuse>1.0 1.0 0.0 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+          <surface>
+            <friction>
+              <ode><mu>1.0</mu><mu2>1.0</mu2></ode>
+            </friction>
+            <contact>
+              <ode>
+                <kp>1000000</kp>
+                <kd>100</kd>
+                <min_depth>0.001</min_depth>
+              </ode>
+            </contact>
+          </surface>
+        </collision>
       </link>
     </model>
 

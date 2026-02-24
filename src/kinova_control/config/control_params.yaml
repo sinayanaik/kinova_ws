@@ -27,7 +27,7 @@ pick_and_place_node:
     gripper:
       open_position: 0.0            # fully open
       close_position: 0.8           # mostly closed for 0.04m cube
-      command_duration: 1.5         # seconds for gripper move
+      max_effort: 100.0
       wait_after_command: 1.0       # seconds to wait after gripper command
 
     # ----- Grasp Verification -----
