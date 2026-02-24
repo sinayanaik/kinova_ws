@@ -185,6 +185,74 @@
         </collision>
       </link>
     </model>
+    <!-- ===============================================================
+         SENSORS SYSTEM PLUGIN (world-level for reliable camera rendering)
+         =============================================================== -->
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+
+    <!-- ===============================================================
+         OVERHEAD CAMERA — static model looking straight down at the table
+         Position: above table center (0.35, 0, 1.5)
+         Orientation: pitch = +π/2 means camera +X → world +Z, but SDF camera
+         optical axis = +X, so we need to rotate such that +X → -Z (down).
+         Using RPY: (0, -π/2, 0) → pitch=-90° → +X = -Z world = looking DOWN
+         =============================================================== -->
+    <model name="overhead_camera">
+      <static>true</static>
+      <pose>0.35 0.0 1.5 0 -1.5708 0</pose>
+      <link name="link">
+        <sensor name="camera_overhead" type="camera">
+          <camera>
+            <horizontal_fov>1.047</horizontal_fov>
+            <image>
+              <width>640</width>
+              <height>480</height>
+              <format>R8G8B8</format>
+            </image>
+            <clip>
+              <near>0.05</near>
+              <far>5.0</far>
+            </clip>
+          </camera>
+          <always_on>true</always_on>
+          <update_rate>15</update_rate>
+          <visualize>true</visualize>
+          <topic>/camera_overhead</topic>
+        </sensor>
+      </link>
+    </model>
+
+    <!-- ===============================================================
+         SIDE CAMERA — looking toward the table from the side
+         Position: (0.35, -0.8, 1.0) looking in +Y direction
+         RPY: (0, 0, π/2) → yaw=90° → +X = +Y world = looking toward table
+         =============================================================== -->
+    <model name="side_camera">
+      <static>true</static>
+      <pose>0.35 -0.8 1.0 0 0 1.5708</pose>
+      <link name="link">
+        <sensor name="camera_side" type="camera">
+          <camera>
+            <horizontal_fov>1.047</horizontal_fov>
+            <image>
+              <width>640</width>
+              <height>480</height>
+              <format>R8G8B8</format>
+            </image>
+            <clip>
+              <near>0.05</near>
+              <far>5.0</far>
+            </clip>
+          </camera>
+          <always_on>true</always_on>
+          <update_rate>15</update_rate>
+          <visualize>true</visualize>
+          <topic>/camera_side</topic>
+        </sensor>
+      </link>
+    </model>
 
   </world>
 </sdf>

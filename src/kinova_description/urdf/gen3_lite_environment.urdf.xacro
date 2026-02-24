@@ -222,85 +222,15 @@
         <diffuse>${color_r} ${color_g} ${color_b} 1</diffuse></material></visual></gazebo>
   </xacro:macro>
 
-  <!-- Dark Red container (for red cube) -->
-  <xacro:container_box name="red_container"    x="0.50" y="0.20"  color_r="0.5" color_g="0.0" color_b="0.0"/>
+  <!-- Dark Red container (for red cube) — single row at x=0.30 -->
+  <xacro:container_box name="red_container"    x="0.30" y="-0.12" color_r="0.5" color_g="0.0" color_b="0.0"/>
   <!-- Dark Green container (for green cube) -->
-  <xacro:container_box name="green_container"  x="0.55" y="0.0"   color_r="0.0" color_g="0.4" color_b="0.0"/>
+  <xacro:container_box name="green_container"  x="0.30" y="0.0"   color_r="0.0" color_g="0.4" color_b="0.0"/>
   <!-- Dark Yellow container (for yellow cube) -->
-  <xacro:container_box name="yellow_container" x="0.50" y="-0.20" color_r="0.6" color_g="0.5" color_b="0.0"/>
+  <xacro:container_box name="yellow_container" x="0.30" y="0.12"  color_r="0.6" color_g="0.5" color_b="0.0"/>
 
   <!-- ===============================================================
-       CAMERAS — Overhead and Side cameras
-       =============================================================== -->
-
-  <!-- Overhead Camera — above table, pointing DOWN -->
-  <link name="camera_overhead_link">
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry><box size="0.02 0.02 0.02"/></geometry>
-      <material name="cam_mat"><color rgba="0.2 0.2 0.2 1.0"/></material>
-    </visual>
-    <inertial>
-      <mass value="0.01"/>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
-    </inertial>
-  </link>
-  <joint name="camera_overhead_joint" type="fixed">
-    <parent link="world"/>
-    <child link="camera_overhead_link"/>
-    <!-- pitch=-pi/2: camera +X points DOWN (world -Z) for a top-down view -->
-    <origin xyz="0.35 0.0 2.25" rpy="0 -1.5708 0"/>
-  </joint>
-  <gazebo reference="camera_overhead_link">
-    <sensor name="camera_overhead" type="camera">
-      <camera>
-        <horizontal_fov>1.047</horizontal_fov>
-        <image><width>640</width><height>480</height><format>R8G8B8</format></image>
-        <clip><near>0.1</near><far>5.0</far></clip>
-      </camera>
-      <always_on>1</always_on>
-      <update_rate>15</update_rate>
-      <visualize>true</visualize>
-      <topic>/camera_overhead</topic>
-    </sensor>
-  </gazebo>
-
-  <!-- Side Camera — side of table, looking toward robot -->
-  <link name="camera_side_link">
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry><box size="0.02 0.02 0.02"/></geometry>
-      <material name="cam_mat"><color rgba="0.2 0.2 0.2 1.0"/></material>
-    </visual>
-    <inertial>
-      <mass value="0.01"/>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
-    </inertial>
-  </link>
-  <joint name="camera_side_joint" type="fixed">
-    <parent link="world"/>
-    <child link="camera_side_link"/>
-    <!-- yaw=+pi/2: camera +X points toward +Y (toward table from y=-1) -->
-    <origin xyz="0.35 -1.0 1.25" rpy="0 0 1.5708"/>
-  </joint>
-  <gazebo reference="camera_side_link">
-    <sensor name="camera_side" type="camera">
-      <camera>
-        <horizontal_fov>1.047</horizontal_fov>
-        <image><width>640</width><height>480</height><format>R8G8B8</format></image>
-        <clip><near>0.1</near><far>5.0</far></clip>
-      </camera>
-      <always_on>1</always_on>
-      <update_rate>15</update_rate>
-      <visualize>true</visualize>
-      <topic>/camera_side</topic>
-    </sensor>
-  </gazebo>
-
-  <!-- ===============================================================
-       GAZEBO PLUGINS — ros2_control + sensors
+       GAZEBO PLUGINS — ros2_control (cameras are now in SDF world)
        =============================================================== -->
   <xacro:if value="$(arg sim_gazebo)">
     <gazebo>

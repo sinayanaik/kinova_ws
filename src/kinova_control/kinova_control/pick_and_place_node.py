@@ -531,6 +531,29 @@ class PickAndPlaceNode(Node):
             self.get_logger().error('No joint states!')
             return False
 
+        # ---- FK VERIFICATION: log EE positions for all named waypoints ----
+        self.get_logger().info('=' * 50)
+        self.get_logger().info('FK VERIFICATION of waypoints:')
+        for wp_name in ['home', 'observe']:
+            wp_data = self.waypoints.get(wp_name, {})
+            angles = wp_data.get('joint_angles')
+            if angles:
+                q = np.array(angles)
+                ee_pose = self.ik_solver.forward_kinematics(q)
+                pos = ee_pose.translation
+                self.get_logger().info(
+                    f'  {wp_name}: joints={[f"{a:.3f}" for a in angles]} '
+                    f'→ EE position=[{pos[0]:.4f}, {pos[1]:.4f}, {pos[2]:.4f}]'
+                )
+        # Also log current (zero-config) FK
+        q_zero = np.zeros(6)
+        ee_zero = self.ik_solver.forward_kinematics(q_zero)
+        pos_zero = ee_zero.translation
+        self.get_logger().info(
+            f'  zero-config → EE position=[{pos_zero[0]:.4f}, {pos_zero[1]:.4f}, {pos_zero[2]:.4f}]'
+        )
+        self.get_logger().info('=' * 50)
+
         self.get_logger().info('System initialization complete!')
         return True
 
