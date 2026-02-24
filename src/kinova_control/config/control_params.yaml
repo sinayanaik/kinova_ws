@@ -1,0 +1,68 @@
+# =============================================================================
+# control_params.yaml
+# Parameters for IK solver, motion executor, gripper, and state machine.
+# =============================================================================
+pick_and_place_node:
+  ros__parameters:
+    use_sim_time: true
+
+    # ----- Robot URDF (for Pinocchio) -----
+    # Will be loaded from robot_description parameter at runtime
+
+    # ----- IK Solver -----
+    ik:
+      max_iterations: 200
+      tolerance: 0.001
+      damping_lambda: 0.000001
+      step_size: 1.0
+
+    # ----- Motion Execution -----
+    motion:
+      interpolation_steps: 15
+      waypoint_duration: 2.5        # seconds per waypoint transition
+      slow_duration: 3.0            # seconds for grasp/place approach
+      transit_height: 0.35          # Z height for safe lateral moves (base frame)
+
+    # ----- Gripper Control -----
+    gripper:
+      open_position: 0.0            # fully open
+      close_position: 0.8           # mostly closed for 0.04m cube
+      command_duration: 1.5         # seconds for gripper move
+      wait_after_command: 1.0       # seconds to wait after gripper command
+
+    # ----- Grasp Verification -----
+    grasp:
+      finger_min_expected: 0.4      # min finger pos when cube is held
+      finger_max_expected: 0.75     # max finger pos when cube is held
+      position_tolerance: 0.03      # meters — cube "gone from table" tolerance
+      required_checks: 2            # must pass this many checks
+
+    # ----- Drop Detection -----
+    drop:
+      check_interval: 0.5           # seconds between finger position checks
+      finger_min_threshold: 0.3     # below this = cube dropped (fingers too open)
+      finger_max_threshold: 0.85    # above this = cube dropped (fingers fully closed)
+
+    # ----- Waypoint Offsets (relative to cube/container positions) -----
+    offsets:
+      pre_grasp_z: 0.08
+      grasp_z: 0.02
+      post_grasp_z: 0.12
+      pre_place_z: 0.25
+      place_z: 0.06
+
+    # ----- Arm Joint Names -----
+    arm_joint_names:
+      - joint_1
+      - joint_2
+      - joint_3
+      - joint_4
+      - joint_5
+      - joint_6
+
+    # ----- Gripper Joint Names -----
+    gripper_joint_names:
+      - right_finger_bottom_joint
+      - right_finger_tip_joint
+      - left_finger_bottom_joint
+      - left_finger_tip_joint
