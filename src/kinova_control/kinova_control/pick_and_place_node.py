@@ -69,7 +69,8 @@ class PickAndPlaceNode(Node):
 
         # ---- State machine ----
         self.state = PickAndPlaceState.INITIALIZE
-        self.cubes_sorted = set()
+        self.cubes_sorted = {}  # color -> count of cubes sorted
+        self.total_cubes = 6  # 2 per color
         self.current_cube_color = None
         self.current_cube_pos = None
         self.current_container_pos = None
@@ -599,10 +600,11 @@ class PickAndPlaceNode(Node):
         # Select next cube
         selected = self._select_next_cube()
         if selected is None:
-            if len(self.cubes_sorted) >= 3:
-                self._transition(PickAndPlaceState.COMPLETE, 'All 3 cubes sorted')
+            total_sorted = sum(self.cubes_sorted.values())
+            if total_sorted >= self.total_cubes:
+                self._transition(PickAndPlaceState.COMPLETE, f'All {self.total_cubes} cubes sorted')
             else:
-                self.get_logger().warn('No unpicked cubes detected, waiting...')
+                self.get_logger().warn(f'No unpicked cubes detected ({total_sorted}/{self.total_cubes} sorted), waiting...')
                 time.sleep(3.0)
             return
 
@@ -626,7 +628,7 @@ class PickAndPlaceNode(Node):
         self._transition(PickAndPlaceState.PRE_GRASP, f'Selected {color} cube')
 
     def _select_next_cube(self):
-        """Select the nearest unpicked cube."""
+        """Select the nearest unpicked cube. Each color can have multiple cubes."""
         if not self.latest_cube_detections:
             return None
 
@@ -636,10 +638,18 @@ class PickAndPlaceNode(Node):
             'yellow': lambda q: q.z > 0.5,
         }
 
+        # Get max cubes per color from mapping
+        max_per_color = {}
+        for color in ['red', 'green', 'yellow']:
+            info = self.cube_mapping.get(color, {})
+            max_per_color[color] = info.get('num_cubes', 2)
+
         candidates = []
         for pose in self.latest_cube_detections.poses:
             for color, check_fn in color_map.items():
-                if color in self.cubes_sorted:
+                # Skip colors that have all cubes sorted
+                sorted_count = self.cubes_sorted.get(color, 0)
+                if sorted_count >= max_per_color.get(color, 2):
                     continue
                 if check_fn(pose.orientation):
                     pos = np.array([pose.position.x, pose.position.y, pose.position.z])
@@ -787,18 +797,20 @@ class PickAndPlaceNode(Node):
         """VERIFY_PLACE: Mark cube as sorted."""
         time.sleep(2.0)
 
-        self.cubes_sorted.add(self.current_cube_color)
+        self.cubes_sorted[self.current_cube_color] = self.cubes_sorted.get(self.current_cube_color, 0) + 1
         self.retry_count = 0
+        total_sorted = sum(self.cubes_sorted.values())
         self.get_logger().info(
-            f'{self.current_cube_color} sorted! '
-            f'Total: {len(self.cubes_sorted)}/3 ({self.cubes_sorted})'
+            f'{self.current_cube_color} cube sorted! '
+            f'Total: {total_sorted}/{self.total_cubes} ({self.cubes_sorted})'
         )
 
-        if len(self.cubes_sorted) >= 3:
-            self._transition(PickAndPlaceState.COMPLETE, 'All 3 cubes sorted')
+        if total_sorted >= self.total_cubes:
+            self._transition(PickAndPlaceState.COMPLETE, f'All {self.total_cubes} cubes sorted')
         else:
+            remaining = self.total_cubes - total_sorted
             self._transition(PickAndPlaceState.OBSERVE,
-                           f'{3 - len(self.cubes_sorted)} remaining')
+                           f'{remaining} cubes remaining')
 
     def _state_recover_drop(self):
         """RECOVER_DROP: Return to home and re-observe."""

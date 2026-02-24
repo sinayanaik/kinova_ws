@@ -185,6 +185,64 @@
         </collision>
       </link>
     </model>
+
+    <!-- ===============================================================
+         ADDITIONAL CUBES — 2nd cube of each color for 6 total
+         =============================================================== -->
+    <model name="red_cube_2">
+      <pose>0.38 0.10 0.77 0 0 0</pose>
+      <link name="cube_link">
+        <inertial><mass>0.05</mass>
+          <inertia><ixx>1.333e-05</ixx><ixy>0</ixy><ixz>0</ixz><iyy>1.333e-05</iyy><iyz>0</iyz><izz>1.333e-05</izz></inertia>
+        </inertial>
+        <visual name="visual">
+          <geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+          <material><ambient>1.0 0.0 0.0 1</ambient><diffuse>1.0 0.0 0.0 1</diffuse><specular>0.1 0.1 0.1 1</specular></material>
+        </visual>
+        <collision name="collision">
+          <geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+          <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
+            <contact><ode><kp>1000000</kp><kd>100</kd><min_depth>0.001</min_depth></ode></contact></surface>
+        </collision>
+      </link>
+    </model>
+
+    <model name="green_cube_2">
+      <pose>0.45 0.05 0.77 0 0 0</pose>
+      <link name="cube_link">
+        <inertial><mass>0.05</mass>
+          <inertia><ixx>1.333e-05</ixx><ixy>0</ixy><ixz>0</ixz><iyy>1.333e-05</iyy><iyz>0</iyz><izz>1.333e-05</izz></inertia>
+        </inertial>
+        <visual name="visual">
+          <geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+          <material><ambient>0.0 1.0 0.0 1</ambient><diffuse>0.0 1.0 0.0 1</diffuse><specular>0.1 0.1 0.1 1</specular></material>
+        </visual>
+        <collision name="collision">
+          <geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+          <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
+            <contact><ode><kp>1000000</kp><kd>100</kd><min_depth>0.001</min_depth></ode></contact></surface>
+        </collision>
+      </link>
+    </model>
+
+    <model name="yellow_cube_2">
+      <pose>0.36 -0.12 0.77 0 0 0</pose>
+      <link name="cube_link">
+        <inertial><mass>0.05</mass>
+          <inertia><ixx>1.333e-05</ixx><ixy>0</ixy><ixz>0</ixz><iyy>1.333e-05</iyy><iyz>0</iyz><izz>1.333e-05</izz></inertia>
+        </inertial>
+        <visual name="visual">
+          <geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+          <material><ambient>1.0 1.0 0.0 1</ambient><diffuse>1.0 1.0 0.0 1</diffuse><specular>0.1 0.1 0.1 1</specular></material>
+        </visual>
+        <collision name="collision">
+          <geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+          <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
+            <contact><ode><kp>1000000</kp><kd>100</kd><min_depth>0.001</min_depth></ode></contact></surface>
+        </collision>
+      </link>
+    </model>
+
     <!-- ===============================================================
          SENSORS SYSTEM PLUGIN (world-level for reliable camera rendering)
          =============================================================== -->
@@ -194,14 +252,11 @@
 
     <!-- ===============================================================
          OVERHEAD CAMERA — static model looking straight down at the table
-         Position: above table center (0.35, 0, 1.5)
-         Orientation: pitch = +π/2 means camera +X → world +Z, but SDF camera
-         optical axis = +X, so we need to rotate such that +X → -Z (down).
-         Using RPY: (0, -π/2, 0) → pitch=-90° → +X = -Z world = looking DOWN
+         Math: Ry(+π/2)*[1,0,0] = [0,0,-1] = -Z world = DOWN ✓
          =============================================================== -->
     <model name="overhead_camera">
       <static>true</static>
-      <pose>0.35 0.0 1.5 0 -1.5708 0</pose>
+      <pose>0.35 0.0 1.5 0 1.5708 0</pose>
       <link name="link">
         <sensor name="camera_overhead" type="camera">
           <camera>
