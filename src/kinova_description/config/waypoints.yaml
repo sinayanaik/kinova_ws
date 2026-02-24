@@ -1,20 +1,19 @@
 # =============================================================================
 # waypoints.yaml
 # Named waypoints for the Kinova Gen3 Lite pick-and-place state machine.
-# All positions in meters, in WORLD FRAME.
-# The robot base is at (0, 0, 0.75) in world frame.
-# Table surface is at z=0.75.
+# All joint angles in radians. Robot base is at (0, 0, 0.75) in world frame.
 # =============================================================================
 waypoints:
   home:
-    # Straight up above the robot base, safe starting position
-    joint_angles: [0.0, -0.35, 1.4, 0.0, -1.05, 0.0]
-    description: "Elbow-up home pose via joint angles"
+    # All zeros = arm straight up (guaranteed safe initial pose)
+    joint_angles: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    description: "Arm straight up - zero config"
 
   observe:
-    # Above table center, looking down at cubes
-    joint_angles: [0.0, 0.0, 1.57, 0.0, -1.57, 0.0]
-    description: "Observation pose - arm extended over table"
+    # Arm extended forward over table, looking down at cubes
+    # Joint 2 leans forward, joint 3 bends elbow, joint 5 angles wrist
+    joint_angles: [0.0, 0.35, 1.57, 0.0, -1.05, 0.0]
+    description: "Observation pose - arm forward over table"
 
   transit_height_z: 1.05  # Safe Z in world frame for transit (30cm above table)
 

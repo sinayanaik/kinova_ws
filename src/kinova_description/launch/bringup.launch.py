@@ -136,15 +136,16 @@ def generate_launch_description():
         package='ros_gz_bridge',
         executable='parameter_bridge',
         arguments=[
-            '/camera_overhead/image@sensor_msgs/msg/Image@gz.msgs.Image',
+            # Camera sensors publish image directly to /<topic> (not /<topic>/image)
+            '/camera_overhead@sensor_msgs/msg/Image@gz.msgs.Image',
             '/camera_overhead/camera_info@sensor_msgs/msg/CameraInfo@gz.msgs.CameraInfo',
-            '/camera_side/image@sensor_msgs/msg/Image@gz.msgs.Image',
+            '/camera_side@sensor_msgs/msg/Image@gz.msgs.Image',
             '/camera_side/camera_info@sensor_msgs/msg/CameraInfo@gz.msgs.CameraInfo',
             '/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
         ],
         remappings=[
-            ('/camera_overhead/image', '/camera_overhead/image_raw'),
-            ('/camera_side/image', '/camera_side/image_raw'),
+            ('/camera_overhead', '/camera_overhead/image_raw'),
+            ('/camera_side', '/camera_side/image_raw'),
         ],
         output='screen',
         parameters=[{'use_sim_time': use_sim_time}],

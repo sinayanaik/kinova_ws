@@ -233,7 +233,7 @@
        CAMERAS — Overhead and Side cameras
        =============================================================== -->
 
-  <!-- Overhead Camera — above table, pointing down -->
+  <!-- Overhead Camera — above table, pointing DOWN -->
   <link name="camera_overhead_link">
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -249,26 +249,24 @@
   <joint name="camera_overhead_joint" type="fixed">
     <parent link="world"/>
     <child link="camera_overhead_link"/>
-    <origin xyz="0.35 0.0 2.25" rpy="0 1.5708 0"/>
+    <!-- pitch=-pi/2: camera +X points DOWN (world -Z) for a top-down view -->
+    <origin xyz="0.35 0.0 2.25" rpy="0 -1.5708 0"/>
   </joint>
   <gazebo reference="camera_overhead_link">
     <sensor name="camera_overhead" type="camera">
       <camera>
         <horizontal_fov>1.047</horizontal_fov>
-        <image><width>640</width><height>480</height><format>RGB_INT8</format></image>
+        <image><width>640</width><height>480</height><format>R8G8B8</format></image>
         <clip><near>0.1</near><far>5.0</far></clip>
-        <lens>
-          <intrinsics><fx>554.25</fx><fy>554.25</fy><cx>320.0</cx><cy>240.0</cy><s>0</s></intrinsics>
-        </lens>
       </camera>
       <always_on>1</always_on>
-      <update_rate>30</update_rate>
+      <update_rate>15</update_rate>
       <visualize>true</visualize>
-      <topic>camera_overhead</topic>
+      <topic>/camera_overhead</topic>
     </sensor>
   </gazebo>
 
-  <!-- Side Camera — to the side of the table -->
+  <!-- Side Camera — side of table, looking toward robot -->
   <link name="camera_side_link">
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -284,22 +282,20 @@
   <joint name="camera_side_joint" type="fixed">
     <parent link="world"/>
     <child link="camera_side_link"/>
+    <!-- yaw=+pi/2: camera +X points toward +Y (toward table from y=-1) -->
     <origin xyz="0.35 -1.0 1.25" rpy="0 0 1.5708"/>
   </joint>
   <gazebo reference="camera_side_link">
     <sensor name="camera_side" type="camera">
       <camera>
         <horizontal_fov>1.047</horizontal_fov>
-        <image><width>640</width><height>480</height><format>RGB_INT8</format></image>
+        <image><width>640</width><height>480</height><format>R8G8B8</format></image>
         <clip><near>0.1</near><far>5.0</far></clip>
-        <lens>
-          <intrinsics><fx>554.25</fx><fy>554.25</fy><cx>320.0</cx><cy>240.0</cy><s>0</s></intrinsics>
-        </lens>
       </camera>
       <always_on>1</always_on>
-      <update_rate>30</update_rate>
+      <update_rate>15</update_rate>
       <visualize>true</visualize>
-      <topic>camera_side</topic>
+      <topic>/camera_side</topic>
     </sensor>
   </gazebo>
 

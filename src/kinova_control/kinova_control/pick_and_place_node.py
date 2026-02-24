@@ -251,11 +251,15 @@ class PickAndPlaceNode(Node):
         trajectory = JointTrajectory()
         trajectory.joint_names = self.arm_joint_names
 
-        dt = duration / max(len(joint_positions_list), 1)
+        n = len(joint_positions_list)
+        dt = duration / max(n, 1)
         for i, positions in enumerate(joint_positions_list):
             point = JointTrajectoryPoint()
             point.positions = list(positions)
-            point.velocities = [0.0] * 6
+            # Only set zero velocity at the LAST point (goal); let controller
+            # interpolate smoothly between intermediate points.
+            if i == n - 1:
+                point.velocities = [0.0] * 6
             t = (i + 1) * dt
             point.time_from_start = Duration(
                 sec=int(t), nanosec=int((t % 1) * 1e9)
@@ -297,7 +301,7 @@ class PickAndPlaceNode(Node):
             )
             return True  # Still treat as done
 
-    def _move_to_joint_angles(self, target_angles, duration=3.0):
+    def _move_to_joint_angles(self, target_angles, duration=4.0):
         """
         Move the arm to specific joint angles.
 
@@ -306,8 +310,8 @@ class PickAndPlaceNode(Node):
         current = self.current_arm_positions.copy()
         target = np.array(target_angles)
 
-        # Interpolate in joint space (5 intermediate waypoints)
-        n_steps = 5
+        # Interpolate in joint space (10 intermediate waypoints for smoothness)
+        n_steps = 10
         waypoints = []
         for i in range(1, n_steps + 1):
             t = i / float(n_steps)
@@ -412,8 +416,8 @@ class PickAndPlaceNode(Node):
 
     def _state_machine_thread(self):
         """Background thread running the state machine."""
-        self.get_logger().info('State machine thread: waiting for system...')
-        time.sleep(5.0)  # Wait for Gazebo, controllers, etc.
+        self.get_logger().info('State machine thread: waiting 15s for Gazebo + controllers...')
+        time.sleep(15.0)  # Wait for Gazebo, controllers, sensors to fully initialize
 
         # Initialize system
         if not self._initialize_system():
