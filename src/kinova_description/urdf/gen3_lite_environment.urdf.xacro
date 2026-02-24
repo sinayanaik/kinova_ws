@@ -222,12 +222,12 @@
         <diffuse>${color_r} ${color_g} ${color_b} 1</diffuse></material></visual></gazebo>
   </xacro:macro>
 
-  <!-- Blue container (for red cube) -->
-  <xacro:container_box name="blue_container"   x="0.50" y="0.20"  color_r="0.0" color_g="0.0" color_b="1.0"/>
-  <!-- Orange container (for green cube) -->
-  <xacro:container_box name="orange_container" x="0.55" y="0.0"   color_r="1.0" color_g="0.5" color_b="0.0"/>
-  <!-- Purple container (for yellow cube) -->
-  <xacro:container_box name="purple_container" x="0.50" y="-0.20" color_r="0.6" color_g="0.0" color_b="0.8"/>
+  <!-- Dark Red container (for red cube) -->
+  <xacro:container_box name="red_container"    x="0.50" y="0.20"  color_r="0.5" color_g="0.0" color_b="0.0"/>
+  <!-- Dark Green container (for green cube) -->
+  <xacro:container_box name="green_container"  x="0.55" y="0.0"   color_r="0.0" color_g="0.4" color_b="0.0"/>
+  <!-- Dark Yellow container (for yellow cube) -->
+  <xacro:container_box name="yellow_container" x="0.50" y="-0.20" color_r="0.6" color_g="0.5" color_b="0.0"/>
 
   <!-- ===============================================================
        CAMERAS — Overhead and Side cameras

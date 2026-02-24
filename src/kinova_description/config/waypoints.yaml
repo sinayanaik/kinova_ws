@@ -1,28 +1,25 @@
 # =============================================================================
 # waypoints.yaml
 # Named waypoints for the Kinova Gen3 Lite pick-and-place state machine.
-# All positions in meters, relative to the robot base frame.
+# All positions in meters, in WORLD FRAME.
 # The robot base is at (0, 0, 0.75) in world frame.
+# Table surface is at z=0.75.
 # =============================================================================
 waypoints:
   home:
-    position: [0.0, 0.0, 0.45]
-    description: "Neutral upright pose, elbow up"
+    # Straight up above the robot base, safe starting position
+    joint_angles: [0.0, -0.35, 1.4, 0.0, -1.05, 0.0]
+    description: "Elbow-up home pose via joint angles"
 
   observe:
-    position: [0.35, 0.0, 0.35]
-    description: "Above cube cluster, camera-friendly view"
+    # Above table center, looking down at cubes
+    joint_angles: [0.0, 0.0, 1.57, 0.0, -1.57, 0.0]
+    description: "Observation pose - arm extended over table"
 
-  transit_height: 0.35  # Z height for safe lateral movements (relative to base)
+  transit_height_z: 1.05  # Safe Z in world frame for transit (30cm above table)
 
   pre_grasp_offset: 0.08    # Height above cube for pre-grasp approach
   grasp_offset: 0.02        # Height above table for grasp contact
   post_grasp_height: 0.12   # Lift height after grasping
-  pre_place_height: 0.25    # Height above container for approach
+  pre_place_height: 0.20    # Height above container for approach
   place_offset: 0.06        # Height inside container for release
-
-  # Grasp approach orientation: gripper pointing straight down
-  grasp_orientation:
-    roll: 3.14159   # pi — gripper pointing down
-    pitch: 0.0
-    yaw: 0.0

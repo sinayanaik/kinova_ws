@@ -176,6 +176,28 @@ def generate_launch_description():
         ],
     )
 
+    # rqt_image_view for camera feeds (delayed to let cameras start)
+    rqt_overhead = TimerAction(
+        period=10.0,
+        actions=[
+            ExecuteProcess(
+                cmd=['ros2', 'run', 'rqt_image_view', 'rqt_image_view',
+                     '/camera_overhead/image_raw'],
+                output='screen',
+            )
+        ],
+    )
+    rqt_side = TimerAction(
+        period=11.0,
+        actions=[
+            ExecuteProcess(
+                cmd=['ros2', 'run', 'rqt_image_view', 'rqt_image_view',
+                     '/camera_side/image_raw'],
+                output='screen',
+            )
+        ],
+    )
+
     return LaunchDescription([
         declare_use_sim_time,
         declare_world_file,
@@ -188,4 +210,6 @@ def generate_launch_description():
         ros_gz_bridge,
         perception_launch,
         control_launch,
+        rqt_overhead,
+        rqt_side,
     ])
