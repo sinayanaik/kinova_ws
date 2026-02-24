@@ -244,9 +244,20 @@
     </model>
 
     <!-- ===============================================================
-         SENSORS SYSTEM PLUGIN (world-level for reliable camera rendering)
+         SYSTEM PLUGINS
+         When ANY plugin is declared in the SDF world, gz-sim skips the
+         default server.config plugins.  We must list them all explicitly.
          =============================================================== -->
-    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+    <plugin filename="gz-sim-physics-system"
+            name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system"
+            name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-contact-system"
+            name="gz::sim::systems::Contact"/>
+    <plugin filename="gz-sim-sensors-system"
+            name="gz::sim::systems::Sensors">
       <render_engine>ogre2</render_engine>
     </plugin>
 
