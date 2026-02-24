@@ -1,0 +1,23 @@
+# =============================================================================
+# cube_container_mapping.yaml
+# Maps each cube color to its target container color and world-frame position.
+# Container positions match those in gen3_lite_environment.urdf.xacro.
+# =============================================================================
+cube_container_mapping:
+  red:
+    target_container: blue
+    container_position: [0.50, 0.20, 0.755]   # World-frame center of blue container floor
+
+  green:
+    target_container: orange
+    container_position: [0.55, 0.0, 0.755]    # World-frame center of orange container floor
+
+  yellow:
+    target_container: purple
+    container_position: [0.50, -0.20, 0.755]  # World-frame center of purple container floor
+
+# Cube initial positions (world frame, for reference / perception validation)
+cube_positions:
+  red:    [0.35, 0.05, 0.77]
+  green:  [0.40, -0.05, 0.77]
+  yellow: [0.32, -0.08, 0.77]

@@ -1,0 +1,58 @@
+# =============================================================================
+# controllers.yaml
+# ros2_control configuration for the Kinova Gen3 Lite in Gazebo simulation.
+# Defines: joint_state_broadcaster, joint_trajectory_controller (6 arm joints),
+# and gripper_trajectory_controller (4 gripper joints, bypassing mimic).
+# =============================================================================
+controller_manager:
+  ros__parameters:
+    update_rate: 500  # Hz
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    joint_trajectory_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    gripper_trajectory_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+joint_trajectory_controller:
+  ros__parameters:
+    joints:
+      - joint_1
+      - joint_2
+      - joint_3
+      - joint_4
+      - joint_5
+      - joint_6
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    state_publish_rate: 100.0
+    action_monitor_rate: 20.0
+    allow_partial_joints_goal: false
+    constraints:
+      stopped_velocity_tolerance: 0.01
+      goal_time: 0.0
+
+gripper_trajectory_controller:
+  ros__parameters:
+    joints:
+      - right_finger_bottom_joint
+      - right_finger_tip_joint
+      - left_finger_bottom_joint
+      - left_finger_tip_joint
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    state_publish_rate: 100.0
+    action_monitor_rate: 20.0
+    allow_partial_joints_goal: true
+    constraints:
+      stopped_velocity_tolerance: 0.05
+      goal_time: 0.0

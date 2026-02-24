@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<!-- ======================================================================
+     kinova_description — Robot model, environment, and launch files for the
+     Kinova Gen3 Lite pick-and-place simulation in Gazebo Harmonic.
+     ====================================================================== -->
+<package format="3">
+  <name>kinova_description</name>
+  <version>1.0.0</version>
+  <description>URDF, Gazebo world, controllers, and launch files for Kinova Gen3 Lite pick-and-place</description>
+  <maintainer email="user@example.com">user</maintainer>
+  <license>BSD-3-Clause</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>robot_state_publisher</depend>
+  <depend>xacro</depend>
+  <depend>kortex_description</depend>
+
+  <exec_depend>ros_gz_sim</exec_depend>
+  <exec_depend>ros_gz_bridge</exec_depend>
+  <exec_depend>gz_ros2_control</exec_depend>
+  <exec_depend>controller_manager</exec_depend>
+  <exec_depend>joint_state_broadcaster</exec_depend>
+  <exec_depend>joint_trajectory_controller</exec_depend>
+
+  <exec_depend>kinova_perception</exec_depend>
+  <exec_depend>kinova_control</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
