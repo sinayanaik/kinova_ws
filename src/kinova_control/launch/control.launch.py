@@ -9,6 +9,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration, Command, FindExecutable
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from ament_index_python.packages import get_package_share_directory
 
 
@@ -21,13 +22,13 @@ def generate_launch_description():
 
     # Generate robot description for Pinocchio IK solver
     xacro_file = os.path.join(kinova_desc_share, 'urdf', 'gen3_lite_environment.urdf.xacro')
-    robot_description = Command([
+    robot_description = ParameterValue(Command([
         FindExecutable(name='xacro'), ' ', xacro_file,
         ' sim_gazebo:=true',
         ' use_fake_hardware:=false',
         ' simulation_controllers:=',
         os.path.join(kinova_desc_share, 'config', 'controllers.yaml'),
-    ])
+    ]), value_type=str)
 
     return LaunchDescription([
         DeclareLaunchArgument('use_sim_time', default_value='true'),
