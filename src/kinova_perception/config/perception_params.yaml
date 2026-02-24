@@ -1,0 +1,69 @@
+# =============================================================================
+# perception_params.yaml
+# HSV color ranges, contour thresholds, and camera parameters for the
+# color_detector_node. All HSV values use OpenCV convention (H: 0-180).
+# =============================================================================
+color_detector:
+  ros__parameters:
+    use_sim_time: true
+
+    # ----- HSV color ranges (OpenCV: H 0-180, S 0-255, V 0-255) -----
+    hsv_ranges:
+      red:
+        # Red wraps around H=0/180, so we use two ranges
+        h_min_1: 0
+        h_max_1: 10
+        h_min_2: 170
+        h_max_2: 180
+        s_min: 100
+        s_max: 255
+        v_min: 100
+        v_max: 255
+
+      green:
+        h_min: 35
+        h_max: 85
+        s_min: 100
+        s_max: 255
+        v_min: 100
+        v_max: 255
+
+      yellow:
+        h_min: 20
+        h_max: 40
+        s_min: 100
+        s_max: 255
+        v_min: 150
+        v_max: 255
+
+    # ----- Contour filtering -----
+    contour_area_min: 200
+    contour_area_max: 5000
+
+    # ----- Camera intrinsics (matching Gazebo sensor config) -----
+    camera_fx: 554.25
+    camera_fy: 554.25
+    camera_cx: 320.0
+    camera_cy: 240.0
+    image_width: 640
+    image_height: 480
+
+    # ----- Camera extrinsics (world frame positions matching URDF) -----
+    overhead_camera:
+      x: 0.35
+      y: 0.0
+      z: 2.25
+
+    side_camera:
+      x: 0.35
+      y: -1.0
+      z: 1.25
+
+    # ----- Table height (used for overhead camera back-projection) -----
+    table_height: 0.75
+    cube_half_height: 0.02
+
+    # ----- Detection parameters -----
+    detection_confidence_threshold: 0.5
+    position_stability_readings: 3
+    position_stability_tolerance: 0.01
