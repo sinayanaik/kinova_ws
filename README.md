@@ -222,12 +222,13 @@ The pick-and-place node is the only node that actually commands the robot. Perce
 ## Building and launching
 
 ```bash
+# first clone this repository
+cd kinova_ws
 # Full build + launch (first time or after source changes)
 ./launch.sh
 
 # Manual build
 source /opt/ros/jazzy/setup.bash
-cd kinova_antigravity
 colcon build --symlink-install
 source install/setup.bash
 
