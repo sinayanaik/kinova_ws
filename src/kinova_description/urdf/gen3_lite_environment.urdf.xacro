@@ -133,12 +133,12 @@
     <link name="${name}_floor">
       <visual>
         <origin xyz="0 0 0" rpy="0 0 0"/>
-        <geometry><box size="0.12 0.12 0.005"/></geometry>
+        <geometry><box size="0.16 0.12 0.005"/></geometry>
         <material name="${name}_mat"><color rgba="${color_r} ${color_g} ${color_b} 1.0"/></material>
       </visual>
       <collision>
         <origin xyz="0 0 0" rpy="0 0 0"/>
-        <geometry><box size="0.12 0.12 0.005"/></geometry>
+        <geometry><box size="0.16 0.12 0.005"/></geometry>
       </collision>
       <inertial>
         <mass value="0.5"/>
@@ -149,7 +149,7 @@
     <joint name="${name}_floor_joint" type="fixed">
       <parent link="world"/>
       <child link="${name}_floor"/>
-      <origin xyz="${x} ${y} 0.7525" rpy="0 0 0"/>
+      <origin xyz="${x-0.02} ${y} 0.7525" rpy="0 0 0"/>
     </joint>
 
     <!-- Front wall (+x) -->
@@ -162,7 +162,7 @@
     </link>
     <joint name="${name}_wall_front_joint" type="fixed">
       <parent link="world"/><child link="${name}_wall_front"/>
-      <origin xyz="${x+0.0575} ${y} ${0.755+0.02}" rpy="0 0 0"/>
+      <origin xyz="${x+0.06} ${y} ${0.755+0.02}" rpy="0 0 0"/>
     </joint>
 
     <!-- Back wall (-x) -->
@@ -175,33 +175,33 @@
     </link>
     <joint name="${name}_wall_back_joint" type="fixed">
       <parent link="world"/><child link="${name}_wall_back"/>
-      <origin xyz="${x-0.0575} ${y} ${0.755+0.02}" rpy="0 0 0"/>
+      <origin xyz="${x-0.10} ${y} ${0.755+0.02}" rpy="0 0 0"/>
     </joint>
 
     <!-- Left wall (+y) -->
     <link name="${name}_wall_left">
-      <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><box size="0.12 0.005 0.04"/></geometry>
+      <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><box size="0.16 0.005 0.04"/></geometry>
         <material name="${name}_mat"><color rgba="${color_r} ${color_g} ${color_b} 1.0"/></material></visual>
-      <collision><origin xyz="0 0 0" rpy="0 0 0"/><geometry><box size="0.12 0.005 0.04"/></geometry></collision>
+      <collision><origin xyz="0 0 0" rpy="0 0 0"/><geometry><box size="0.16 0.005 0.04"/></geometry></collision>
       <inertial><mass value="0.1"/><origin xyz="0 0 0" rpy="0 0 0"/>
         <inertia ixx="0.0001" ixy="0" ixz="0" iyy="0.0001" iyz="0" izz="0.0001"/></inertial>
     </link>
     <joint name="${name}_wall_left_joint" type="fixed">
       <parent link="world"/><child link="${name}_wall_left"/>
-      <origin xyz="${x} ${y+0.0575} ${0.755+0.02}" rpy="0 0 0"/>
+      <origin xyz="${x-0.02} ${y+0.06} ${0.755+0.02}" rpy="0 0 0"/>
     </joint>
 
     <!-- Right wall (-y) -->
     <link name="${name}_wall_right">
-      <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><box size="0.12 0.005 0.04"/></geometry>
+      <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><box size="0.16 0.005 0.04"/></geometry>
         <material name="${name}_mat"><color rgba="${color_r} ${color_g} ${color_b} 1.0"/></material></visual>
-      <collision><origin xyz="0 0 0" rpy="0 0 0"/><geometry><box size="0.12 0.005 0.04"/></geometry></collision>
+      <collision><origin xyz="0 0 0" rpy="0 0 0"/><geometry><box size="0.16 0.005 0.04"/></geometry></collision>
       <inertial><mass value="0.1"/><origin xyz="0 0 0" rpy="0 0 0"/>
         <inertia ixx="0.0001" ixy="0" ixz="0" iyy="0.0001" iyz="0" izz="0.0001"/></inertial>
     </link>
     <joint name="${name}_wall_right_joint" type="fixed">
       <parent link="world"/><child link="${name}_wall_right"/>
-      <origin xyz="${x} ${y-0.0575} ${0.755+0.02}" rpy="0 0 0"/>
+      <origin xyz="${x-0.02} ${y-0.06} ${0.755+0.02}" rpy="0 0 0"/>
     </joint>
 
     <!-- Gazebo properties for all container parts -->
