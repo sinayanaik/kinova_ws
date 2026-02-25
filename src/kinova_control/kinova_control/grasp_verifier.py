@@ -22,7 +22,7 @@ class GraspVerifier:
 
     def __init__(
         self,
-        finger_min_expected: float = 0.4,
+        finger_min_expected: float = 0.15,
         finger_max_expected: float = 0.75,
         position_tolerance: float = 0.03,
         required_checks: int = 2,

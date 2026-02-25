@@ -26,14 +26,14 @@ pick_and_place_node:
     # ----- Gripper Control -----
     gripper:
       open_position: 0.0            # fully open
-      close_position: 0.85          # fully closed for empty-grasp detection
+      close_position: 0.82          # fully closed for empty-grasp detection (with safety margin)
       max_effort: 100.0
-      wait_after_command: 0.3       # seconds to wait after gripper command
+      wait_after_command: 0.5       # seconds to wait after gripper command
 
     # ----- Grasp Verification -----
     grasp:
       finger_min_expected: 0.15     # min finger pos when cube is held
-      finger_max_expected: 0.65     # max finger pos when cube is held (empty closes to ~0.85)
+      finger_max_expected: 0.75     # max finger pos when cube is held (empirically achievable with contact)
       position_tolerance: 0.05      # meters — cube "gone from table" tolerance
       required_checks: 1            # only finger-gap check needed
 
@@ -41,13 +41,13 @@ pick_and_place_node:
     drop:
       check_interval: 0.5           # seconds between finger position checks
       finger_min_threshold: 0.1     # below this = cube dropped (fingers too open)
-      finger_max_threshold: 0.80    # above this = cube dropped (fingers fully closed)
+      finger_max_threshold: 0.84    # above this = cube dropped (fingers fully closed)
 
     # ----- Waypoint Offsets (relative to cube/container positions) -----
     # IK now targets tool_frame (fingertip) directly — no TCP offset needed
     offsets:
       pre_grasp_z: 0.05
-      grasp_z: -0.005
+      grasp_z: -0.015               # 15mm below cube top for side contact
       post_grasp_z: 0.08
       pre_place_z: 0.10
       drop_height: 0.07              # height above container to open gripper and drop cube

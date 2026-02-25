@@ -21,11 +21,11 @@ cube_container_mapping:
     num_cubes: 2
 
 # Cube initial positions (world frame, matching SDF — 0.035m cubes)
-# Single row at x=0.18, 8cm spacing along y-axis
+# Single row at x=0.18, 8cm spacing, interleaved colors: R,Y,G,R,G,Y
 cube_positions:
   red_1:    [0.18, -0.20, 0.7675]
-  red_2:    [0.18, -0.12, 0.7675]
-  yellow_1: [0.18, -0.04, 0.7675]
-  yellow_2: [0.18,  0.04, 0.7675]
-  green_1:  [0.18,  0.12, 0.7675]
-  green_2:  [0.18,  0.20, 0.7675]
+  yellow_1: [0.18, -0.12, 0.7675]
+  green_1:  [0.18, -0.04, 0.7675]
+  red_2:    [0.18,  0.04, 0.7675]
+  green_2:  [0.18,  0.12, 0.7675]
+  yellow_2: [0.18,  0.20, 0.7675]

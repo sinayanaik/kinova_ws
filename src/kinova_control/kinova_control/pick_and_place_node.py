@@ -68,6 +68,9 @@ class PickAndPlaceNode(Node):
         self.current_container_pos = None
         self.retry_count = 0
         self.max_retries = 3
+        self.desired_wrist_angle = None
+        self.no_target_count = 0
+        self.max_no_target_cycles = 3
 
         # Ordered picking: red -> green -> yellow -> red -> green -> yellow
         self.pick_order = ['red', 'green', 'yellow', 'red', 'green', 'yellow']
@@ -82,6 +85,13 @@ class PickAndPlaceNode(Node):
 
         # Load configs
         self._load_configs()
+
+        # Targets per color from config (fallback to 2 each)
+        self.cube_target_counts = {
+            c: self.cube_mapping.get(c, {}).get('num_cubes', 2)
+            for c in ['red', 'green', 'yellow']
+        }
+        self.total_cubes = sum(self.cube_target_counts.values())
 
         # Subscribers
         self.create_subscription(
@@ -127,17 +137,17 @@ class PickAndPlaceNode(Node):
         p('motion.slow_duration', 0.8)
         p('motion.transit_height', 0.35)
         p('gripper.open_position', 0.0)
-        p('gripper.close_position', 0.85)
+        p('gripper.close_position', 0.82)
         p('gripper.max_effort', 100.0)
-        p('gripper.wait_after_command', 0.3)
+        p('gripper.wait_after_command', 0.5)
         p('grasp.finger_min_expected', 0.15)
-        p('grasp.finger_max_expected', 0.65)
+        p('grasp.finger_max_expected', 0.75)
         p('grasp.position_tolerance', 0.05)
         p('grasp.required_checks', 1)
         p('drop.finger_min_threshold', 0.1)
-        p('drop.finger_max_threshold', 0.80)
+        p('drop.finger_max_threshold', 0.84)
         p('offsets.pre_grasp_z', 0.05)
-        p('offsets.grasp_z', -0.005)
+        p('offsets.grasp_z', -0.015)
         p('offsets.post_grasp_z', 0.08)
         p('offsets.pre_place_z', 0.10)
         p('offsets.drop_height', 0.07)  # height above container to open gripper and drop
@@ -231,8 +241,15 @@ class PickAndPlaceNode(Node):
         wps = [cur + float(i)/5 * (tgt - cur) for i in range(1, 6)]
         return self._send_traj(wps, dur)
 
-    def _move_to_pose(self, pos, dur=1.5):
-        """IK + joint-space move. Uses solve_robust (6D → 5D Z-down → pos-only)."""
+    def _move_to_pose(self, pos, dur=1.5, strict=True):
+        """IK + joint-space move. Uses solve_robust (6D → 5D Z-down → pos-only).
+        
+        Args:
+            pos: Target position [x, y, z]
+            dur: Move duration
+            strict: If True, require precise position match (err < 0.008m).
+                   If False, accept looser match (err < 0.015m) for coarse approach.
+        """
         if self.ik_solver is None:
             return False
         ok, q = self.ik_solver.solve_robust(
@@ -245,9 +262,10 @@ class PickAndPlaceNode(Node):
         tool_z = ee.rotation[:, 2]
         z_err = np.linalg.norm(tool_z - np.array([0, 0, -1]))
 
-        if err > 0.008:
+        err_threshold = 0.008 if strict else 0.015
+        if err > err_threshold:
             # Try Z-axis-down fallback (5D: position + vertical orientation)
-            self._log(f'Robust IK err={err:.4f}, trying Z-down 5D...')
+            self._log(f'IK err={err:.4f}, trying Z-down 5D (strict={strict})...')
             ok2, q2 = self.ik_solver.solve_z_axis_down(
                 np.array(pos),
                 self.current_arm_positions.copy(), 500, 2e-3)
@@ -256,14 +274,155 @@ class PickAndPlaceNode(Node):
             z_err2 = np.linalg.norm(ee2.rotation[:, 2] - np.array([0, 0, -1]))
             if err2 < err:
                 q, ee, err, z_err = q2, ee2, err2, z_err2
-            if err > 0.01:
-                self.get_logger().warn(
-                    f'IK FAIL target={np.round(pos,3)} '
-                    f'achieved={np.round(ee.translation,3)} err={err:.4f} z_err={z_err:.4f}')
-                return False
+            
+            # Final check
+            fail_threshold = 0.012 if strict else 0.020
+            if err > fail_threshold:
+                if strict:
+                    self.get_logger().warn(
+                        f'IK FAIL target={np.round(pos,3)} '
+                        f'achieved={np.round(ee.translation,3)} err={err:.4f} z_err={z_err:.4f}')
+                    return False
+                else:
+                    self._log(f'IK loose match (coarse): err={err:.4f}')
+        
+        # Smart finger alignment: avoid neighboring cubes
+        if self.current_cube_pos is not None:
+            q = self._align_fingers_avoid_neighbors(q, self.current_cube_pos)
+        else:
+            q = self._align_fingers_tangential(q)
         self._log(f'IK OK target={np.round(pos,3)} '
                   f'achieved={np.round(ee.translation,3)} err={err:.4f} z_err={z_err:.4f}')
         return self._move_joints(q, dur)
+
+    def _align_fingers_tangential(self, q):
+        """Adjust j6 (wrist roll) so gripper fingers open along Y-axis.
+
+        Since j6 only rotates around tool Z (≈ world -Z), changing it
+        preserves position and Z-down orientation.  The relationship is:
+        Δφ = -Δj6  (finger angle decreases as j6 increases).
+        """
+        se3 = self.ik_solver.forward_kinematics(q)
+        finger = se3.rotation[:, 0]  # tool X = finger opening direction
+        phi = np.arctan2(finger[1], finger[0])  # current angle in XY plane
+        # Target: fingers along ±Y → φ = ±π/2
+        # Pick closest target (±π/2)
+        delta_plus  = ((np.pi / 2 - phi) + np.pi) % (2 * np.pi) - np.pi
+        delta_minus = ((-np.pi / 2 - phi) + np.pi) % (2 * np.pi) - np.pi
+        delta = delta_plus if abs(delta_plus) < abs(delta_minus) else delta_minus
+        q_out = q.copy()
+        q_out[5] -= delta  # Δφ = -Δj6, so j6 -= delta to achieve Δφ = +delta
+        return q_out
+
+    def _angle_diff(self, a, b):
+        return ((a - b) + np.pi) % (2 * np.pi) - np.pi
+
+    def _current_finger_angle(self):
+        if self.ik_solver is None:
+            return None
+        se3 = self.ik_solver.forward_kinematics(self.current_arm_positions)
+        finger = se3.rotation[:, 0]
+        return np.arctan2(finger[1], finger[0])
+
+    def _get_all_detected_cube_positions(self):
+        """Extract all currently detected cube positions from latest detections."""
+        positions = []
+        if self.latest_cube_detections is None:
+            return positions
+        for pose in self.latest_cube_detections.poses:
+            p = np.array([pose.position.x, pose.position.y, pose.position.z])
+            positions.append(p)
+        return positions
+
+    def _compute_desired_wrist_angle(self, target_pos):
+        all_cubes = self._get_all_detected_cube_positions()
+
+        # Find close neighbors (within 12cm horizontally, excluding self)
+        neighbors = []
+        for cp in all_cubes:
+            dist_xy = np.linalg.norm(cp[:2] - target_pos[:2])
+            if 0.02 < dist_xy < 0.12:
+                neighbors.append(cp[:2])
+
+        if not neighbors:
+            return None
+
+        self._log(f'  Neighbors found: {len(neighbors)} cubes within 12cm')
+
+        prefer = self._current_finger_angle()
+        if prefer is None:
+            prefer = np.pi / 2
+
+        # Candidate angles: perpendicular to each neighbor direction + defaults
+        candidates = set()
+        for nb in neighbors:
+            d = nb - target_pos[:2]
+            theta = np.arctan2(d[1], d[0])
+            candidates.add(theta + np.pi / 2)
+            candidates.add(theta - np.pi / 2)
+        candidates.add(np.pi / 2)
+        candidates.add(-np.pi / 2)
+
+        best_angle = None
+        best_score = -float('inf')
+
+        for angle in candidates:
+            finger_dir = np.array([np.cos(angle), np.sin(angle)])
+            perp_dir = np.array([-np.sin(angle), np.cos(angle)])
+
+            min_safety = float('inf')
+            for nb in neighbors:
+                d = nb - target_pos[:2]
+                proj_finger = abs(np.dot(d, finger_dir))
+                proj_perp = abs(np.dot(d, perp_dir))
+
+                if proj_finger < 0.055:
+                    min_safety = min(min_safety, proj_perp)
+                else:
+                    min_safety = min(min_safety, np.linalg.norm(d))
+
+            rot_penalty = 0.02 * abs(self._angle_diff(angle, prefer))
+            score = min_safety - rot_penalty
+
+            if score > best_score:
+                best_score = score
+                best_angle = angle
+
+        if best_angle is not None:
+            chosen_deg = np.degrees(best_angle)
+            self._log(f'  Wrist plan: {chosen_deg:.0f}° (clearance={best_score:.3f}m)')
+        return best_angle
+
+    def _set_desired_wrist_angle(self, target_pos):
+        angle = self._compute_desired_wrist_angle(target_pos)
+        if angle is None:
+            self.desired_wrist_angle = None
+        else:
+            self.desired_wrist_angle = angle
+
+    def _align_fingers_avoid_neighbors(self, q, target_pos):
+        """Orient wrist j6 to avoid disturbing neighboring cubes.
+
+        Uses a pre-planned wrist angle when available, so the rotation is
+        chosen before motion planning and remains stable during approach.
+        """
+        se3 = self.ik_solver.forward_kinematics(q)
+
+        angle = self.desired_wrist_angle
+        if angle is None:
+            angle = self._compute_desired_wrist_angle(target_pos)
+            if angle is None:
+                return self._align_fingers_tangential(q)
+
+        finger = se3.rotation[:, 0]
+        current_phi = np.arctan2(finger[1], finger[0])
+        delta1 = ((angle - current_phi) + np.pi) % (2 * np.pi) - np.pi
+        delta2 = ((angle + np.pi - current_phi) + np.pi) % (2 * np.pi) - np.pi
+        delta = delta1 if abs(delta1) < abs(delta2) else delta2
+
+        q_out = q.copy()
+        q_out[5] -= delta  # Δφ = -Δj6
+        return q_out
 
     def _move_cartesian(self, target_pos, dur=1.5):
         """Short Cartesian interpolation (fine motion, preserves vertical orientation)."""
@@ -286,6 +445,11 @@ class PickAndPlaceNode(Node):
                 if not ok:
                     self.get_logger().warn(f'Cart IK fail step {i}/{n}')
                     return False
+            # Smart finger alignment: avoid neighboring cubes
+            if self.current_cube_pos is not None:
+                q = self._align_fingers_avoid_neighbors(q, self.current_cube_pos)
+            else:
+                q = self._align_fingers_tangential(q)
             wps.append(q)
             qp = q.copy()
         return self._send_traj(wps, dur)
@@ -423,15 +587,15 @@ class PickAndPlaceNode(Node):
     def _do_init(self):
         home = self.waypoints.get('home', {}).get(
             'joint_angles', [0.0]*6)
-        self._move_joints(home, dur=1.2)
+        self._move_joints(home, dur=0.8)
         self._transition(S.OBSERVE, 'Home reached')
 
     def _do_observe(self):
         obs = self.waypoints.get('observe', {}).get(
             'joint_angles', [0.0, 0.35, 1.57, 0.0, -1.05, 0.0])
-        self._move_joints(obs, dur=1.0)
+        self._move_joints(obs, dur=0.6)
         # Quick settle for perception
-        time.sleep(0.5)
+        time.sleep(0.3)
 
         if self.latest_cube_detections is None:
             self._log('No detections yet, waiting...')
@@ -443,12 +607,33 @@ class PickAndPlaceNode(Node):
             self._transition(S.COMPLETE, 'Sequence complete')
             return
 
-        sel = self._select_cube()
-        if sel is None:
-            total = sum(self.cubes_sorted.values())
-            self._log(f'No cube for {self.pick_order[self.pick_index]} ({total} sorted)')
-            time.sleep(1.0)
+        # Skip colors already fully sorted
+        while self.pick_index < len(self.pick_order):
+            color = self.pick_order[self.pick_index]
+            target = self.cube_target_counts.get(color, 2)
+            if self.cubes_sorted.get(color, 0) < target:
+                break
+            self.pick_index += 1
+        if self.pick_index >= len(self.pick_order):
+            self._transition(S.COMPLETE, 'All targets sorted')
             return
+
+        target_color = self.pick_order[self.pick_index]
+        sel = self._select_cube_by_color(target_color)
+        if sel is None:
+            self.no_target_count += 1
+            if self.no_target_count >= self.max_no_target_cycles:
+                sel = self._select_any_available_cube()
+                if sel is not None:
+                    self._log(f'Fallback pick: {sel[0]} (target {target_color} not visible)')
+                    self.no_target_count = 0
+            if sel is None:
+                total = sum(self.cubes_sorted.values())
+                self._log(f'No cube for {target_color} ({total} sorted)')
+                time.sleep(1.0)
+                return
+        else:
+            self.no_target_count = 0
 
         color, pos = sel
         self.current_cube_color = color
@@ -463,72 +648,116 @@ class PickAndPlaceNode(Node):
         self._log(f'Target: {color} cube at {np.round(pos,3)} -> container at {cp}')
         self._transition(S.PRE_GRASP, f'{color} cube selected')
 
-    def _select_cube(self):
-        """Select the next cube following R->G->Y->R->G->Y order."""
+    def _select_cube_by_color(self, target_color):
         if not self.latest_cube_detections:
             return None
+        cands = self._get_color_candidates(target_color)
+        if not cands:
+            return None
+        cands.sort(key=lambda p: np.linalg.norm(p[:2]))
+        self._log(f'Order [{self.pick_index}]: picking {target_color}')
+        return target_color, cands[0]
+
+    def _select_any_available_cube(self):
+        if not self.latest_cube_detections:
+            return None
+        best = None
+        for color in ['red', 'green', 'yellow']:
+            target = self.cube_target_counts.get(color, 2)
+            if self.cubes_sorted.get(color, 0) >= target:
+                continue
+            cands = self._get_color_candidates(color)
+            for p in cands:
+                d = np.linalg.norm(p[:2])
+                if best is None or d < best[0]:
+                    best = (d, color, p)
+        if best is None:
+            return None
+        return best[1], best[2]
+
+    def _get_color_candidates(self, target_color):
+        if not self.latest_cube_detections:
+            return []
         cmap = {
             'red':    lambda q: q.x > 0.5,
             'green':  lambda q: q.y > 0.5,
             'yellow': lambda q: q.z > 0.5}
-
-        if self.pick_index >= len(self.pick_order):
-            return None
-
-        target_color = self.pick_order[self.pick_index]
-        check_fn = cmap[target_color]
-
-        # Find all cubes of the target color
+        check_fn = cmap.get(target_color)
+        if check_fn is None:
+            return []
         cands = []
         for pose in self.latest_cube_detections.poses:
             if check_fn(pose.orientation):
                 p = np.array([pose.position.x, pose.position.y, pose.position.z])
                 cands.append(p)
+        return cands
 
+    def _refresh_current_cube_position(self):
+        if self.current_cube_color is None:
+            return
+        cands = self._get_color_candidates(self.current_cube_color)
         if not cands:
-            self._log(f'No {target_color} cube found, skipping')
-            self.pick_index += 1
-            return None
-
-        # Pick the closest one
-        cands.sort(key=lambda p: np.linalg.norm(p[:2]))
-        self._log(f'Order [{self.pick_index}]: picking {target_color}')
-        return target_color, cands[0]
+            return
+        if self.current_cube_pos is None:
+            cands.sort(key=lambda p: np.linalg.norm(p[:2]))
+            self.current_cube_pos = cands[0]
+        else:
+            cands.sort(key=lambda p: np.linalg.norm((p - self.current_cube_pos)[:2]))
+            self.current_cube_pos = cands[0]
+        self._log(f'Refresh {self.current_cube_color} target: {np.round(self.current_cube_pos,3)}')
 
     def _do_pre_grasp(self):
+        # Re-acquire target position in case the cube moved
+        self._refresh_current_cube_position()
+        if self.current_cube_pos is not None:
+            self._set_desired_wrist_angle(self.current_cube_pos)
         self._open()
         off = self.get_parameter('offsets.pre_grasp_z').value
         pos = self.current_cube_pos.copy()
         pos[2] += off
         self._log(f'Pre-grasp tool target: {np.round(pos,3)} (fingers at z={pos[2]:.3f})')
-        ok = self._move_to_pose(pos, dur=0.8)
+        ok = self._move_to_pose(pos, dur=0.5)
         if ok:
             self._transition(S.GRASP, 'Above cube')
         else:
             self.retry_count += 1
             if self.retry_count >= self.max_retries:
-                self.pick_index += 1  # skip this cube in sequence
                 self.retry_count = 0
-                self._transition(S.OBSERVE, 'Max retries, skip cube')
+                self._transition(S.OBSERVE, 'Max retries, re-acquire target')
             else:
                 # Stay close — try again without retreating to observe
                 self._log(f'Pre-grasp retry {self.retry_count}/{self.max_retries}')
                 time.sleep(0.3)
 
     def _do_grasp(self):
+        """Two-phase grasp: coarse position then careful descent with force."""
         off = self.get_parameter('offsets.grasp_z').value
         pos = self.current_cube_pos.copy()
         pos[2] += off
         self._log(f'Grasp tool target: {np.round(pos,3)} (fingers at z={pos[2]:.3f})')
-        ok = self._move_cartesian(pos, dur=0.7)
+        
+        # Phase 1: Coarse descent to just above cube (position only, no strict orientation)
+        # This gets the fingers in position quickly.
+        coarse_pos = self.current_cube_pos.copy()
+        coarse_pos[2] += 0.01  # 1cm above top surface
+        ok = self._move_to_pose(coarse_pos, dur=0.4, strict=False)
         if not ok:
-            ok = self._move_to_pose(pos, dur=0.7)
+            self._transition(S.OBSERVE, 'Grasp coarse descent fail')
+            return
+        
+        time.sleep(0.2)  # Brief settle
+        
+        # Phase 2: Slow careful descent INTO cube for side contact
+        ok = self._move_cartesian(pos, dur=0.8)  # Slower descent
+        if not ok:
+            ok = self._move_to_pose(pos, dur=0.6, strict=False)
             if not ok:
-                self._transition(S.OBSERVE, 'Grasp descent fail')
+                self._transition(S.OBSERVE, 'Grasp fine descent fail')
                 return
-        time.sleep(0.3)  # settle before closing
+        
+        time.sleep(0.4)  # Settle before closing
         self._close()
-        time.sleep(0.5)  # wait for gripper to fully close/stall
+        time.sleep(2.0)  # CRITICAL: Long settle to ensure finger contact and force buildup
 
         # Immediate grasp check BEFORE lifting
         finger_ok = self.grasp_verifier.check_finger_gap(self.current_finger_pos)
@@ -540,9 +769,8 @@ class PickAndPlaceNode(Node):
             self.retry_count += 1
             self._open()
             if self.retry_count >= self.max_retries:
-                self.pick_index += 1
                 self.retry_count = 0
-                self._transition(S.OBSERVE, f'Grasp failed {self.max_retries}x, skip')
+                self._transition(S.OBSERVE, f'Grasp failed {self.max_retries}x, re-acquire target')
             else:
                 self._log(f'Empty grasp, retry {self.retry_count}/{self.max_retries}')
                 self._transition(S.PRE_GRASP, 'Retry grasp')
@@ -555,10 +783,10 @@ class PickAndPlaceNode(Node):
         off = self.get_parameter('offsets.post_grasp_z').value
         pos = self.current_cube_pos.copy()
         pos[2] += off
-        ok = self._move_cartesian(pos, dur=0.7)
+        ok = self._move_cartesian(pos, dur=0.5)
         if not ok:
-            self._move_to_pose(pos, dur=0.7)
-        time.sleep(0.2)
+            self._move_to_pose(pos, dur=0.5)
+        time.sleep(0.1)
 
         # Check finger gap only (required_checks=1)
         finger_ok = self.grasp_verifier.check_finger_gap(self.current_finger_pos)
@@ -570,10 +798,9 @@ class PickAndPlaceNode(Node):
         else:
             self.retry_count += 1
             if self.retry_count >= self.max_retries:
-                self.pick_index += 1  # skip this cube in sequence
                 self.retry_count = 0
                 self._open()
-                self._transition(S.OBSERVE, 'Max retries, skip')
+                self._transition(S.OBSERVE, 'Max retries, re-acquire target')
             else:
                 # Stay close — retry from pre-grasp instead of retreating
                 self._open()
@@ -585,7 +812,7 @@ class PickAndPlaceNode(Node):
         drop_h = self.get_parameter('offsets.drop_height').value
         above = np.array([cp[0], cp[1], cp[2] + drop_h])
         self._log(f'Transit to drop pos {np.round(above,3)}')
-        ok = self._move_to_pose(above, dur=0.8)
+        ok = self._move_to_pose(above, dur=0.6)
         if self.drop_detector.check_for_drop(self.current_finger_pos):
             self._transition(S.RECOVER_DROP, 'Drop during transit')
             return
@@ -602,18 +829,27 @@ class PickAndPlaceNode(Node):
         self._log(f'Dropping cube at {np.round(drop_pos,3)}')
         # Open gripper — cube falls into container
         self._open()
-        time.sleep(0.3)  # wait for cube to settle
+        time.sleep(0.2)  # wait for cube to settle
         # Retreat upward
         retreat_z = cp[2] + self.get_parameter('offsets.pre_place_z').value
-        self._move_to_pose([cp[0], cp[1], retreat_z], dur=0.6)
+        self._move_to_pose([cp[0], cp[1], retreat_z], dur=0.4)
         self._transition(S.VERIFY_PLACE, f'Dropped {self.current_cube_color}')
 
     def _do_verify_place(self):
-        time.sleep(0.3)
+        time.sleep(0.1)
         self.cubes_sorted[self.current_cube_color] = \
             self.cubes_sorted.get(self.current_cube_color, 0) + 1
         self.retry_count = 0
-        self.pick_index += 1
+        if self.pick_index < len(self.pick_order):
+            target_color = self.pick_order[self.pick_index]
+            if self.current_cube_color == target_color:
+                # Advance only when we complete the intended color
+                while self.pick_index < len(self.pick_order):
+                    color = self.pick_order[self.pick_index]
+                    target = self.cube_target_counts.get(color, 2)
+                    if self.cubes_sorted.get(color, 0) < target:
+                        break
+                    self.pick_index += 1
         total = sum(self.cubes_sorted.values())
         self._log(f'{self.current_cube_color} sorted! {total}/{self.total_cubes} {self.cubes_sorted}')
         if self.pick_index >= len(self.pick_order):

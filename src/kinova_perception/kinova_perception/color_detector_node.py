@@ -56,6 +56,15 @@ class ColorDetectorNode(Node):
         # Detection history for stability filtering
         self.detection_history = {}  # color -> list of recent (x, y, z)
 
+        # Expected cube positions for verification (from cube_container_mapping.yaml)
+        self.expected_positions = {
+            'red':    [[0.18, -0.20], [0.18, 0.04]],
+            'green':  [[0.18, -0.04], [0.18, 0.12]],
+            'yellow': [[0.18, -0.12], [0.18, 0.20]],
+        }
+        self._initial_verification_done = False
+        self._verification_frame_count = 0
+
         # Periodic EE pose publisher
         self.create_timer(0.1, self._publish_ee_pose)
 
@@ -257,6 +266,39 @@ class ColorDetectorNode(Node):
 
     # ======================== BACK-PROJECTION ========================
 
+    def _verify_initial_detections(self, detections):
+        """Log comparison of detected vs expected cube positions on startup."""
+        self._verification_frame_count += 1
+        if self._verification_frame_count < 10:
+            return  # Wait for detections to stabilize
+        if self._initial_verification_done:
+            return
+        self._initial_verification_done = True
+
+        self.get_logger().info('=== Camera Coordinate Verification ===')
+        for color_name, dets in detections.items():
+            expected = self.expected_positions.get(color_name, [])
+            for i, (cx, cy, area) in enumerate(dets):
+                wx, wy, wz = self._overhead_back_project(cx, cy)
+                # Find closest expected position
+                min_err = float('inf')
+                closest = None
+                for exp in expected:
+                    err = np.sqrt((wx - exp[0])**2 + (wy - exp[1])**2)
+                    if err < min_err:
+                        min_err = err
+                        closest = exp
+                if closest is not None:
+                    self.get_logger().info(
+                        f'  {color_name}_{i+1}: detected=({wx:.4f},{wy:.4f}) '
+                        f'expected=({closest[0]:.4f},{closest[1]:.4f}) '
+                        f'error={min_err*1000:.1f}mm')
+                else:
+                    self.get_logger().info(
+                        f'  {color_name}_{i+1}: detected=({wx:.4f},{wy:.4f}) '
+                        f'no expected position')
+        self.get_logger().info('=== End Verification ===')
+
     def _overhead_back_project(self, cx_px, cy_px):
         """
         Back-project a pixel from the overhead camera to world (X, Y, Z).
@@ -296,6 +338,9 @@ class ColorDetectorNode(Node):
             return
 
         detections = self._detect_colors(bgr)
+
+        # Verify camera accuracy on startup
+        self._verify_initial_detections(detections)
 
         # Build PoseArray from all detections
         pose_array = PoseArray()

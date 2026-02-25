@@ -68,9 +68,8 @@
     <!-- ===============================================================
          CUBES — 6 cubes in a single row along Y-axis at x=0.18.
          8cm spacing between centers (3.5cm cubes = 4.5cm gap).
+         Colors interleaved: R, Y, G, R, G, Y (no same-color neighbors).
          Gripper approaches from above without disturbing neighbors.
-         Robot base at (0,0,0.75). Vertical reach: x∈[0.15,0.21], y∈[-0.20,0.20].
-         Table surface z=0.75, cube half-height 0.0175, center z=0.7675.
          =============================================================== -->
 
     <!-- RED CUBE 1 -->
@@ -97,7 +96,7 @@
           <geometry><box><size>0.035 0.035 0.035</size></box></geometry>
           <surface>
             <friction>
-              <ode><mu>1.0</mu><mu2>1.0</mu2></ode>
+              <ode><mu>2.5</mu><mu2>2.5</mu2></ode>
             </friction>
             <contact>
               <ode>
@@ -113,7 +112,7 @@
 
     <!-- GREEN CUBE 1 -->
     <model name="green_cube">
-      <pose>0.18 0.12 0.7675 0 0 0</pose>
+      <pose>0.18 -0.04 0.7675 0 0 0</pose>
       <link name="cube_link">
         <inertial>
           <mass>0.04</mass>
@@ -135,7 +134,7 @@
           <geometry><box><size>0.035 0.035 0.035</size></box></geometry>
           <surface>
             <friction>
-              <ode><mu>1.0</mu><mu2>1.0</mu2></ode>
+              <ode><mu>2.5</mu><mu2>2.5</mu2></ode>
             </friction>
             <contact>
               <ode>
@@ -149,9 +148,9 @@
       </link>
     </model>
 
-    <!-- YELLOW CUBE 1 -->
+    <!-- YELLOW CUBE 1 (was GREEN at this position) -->
     <model name="yellow_cube">
-      <pose>0.18 -0.04 0.7675 0 0 0</pose>
+      <pose>0.18 -0.12 0.7675 0 0 0</pose>
       <link name="cube_link">
         <inertial>
           <mass>0.04</mass>
@@ -173,7 +172,7 @@
           <geometry><box><size>0.035 0.035 0.035</size></box></geometry>
           <surface>
             <friction>
-              <ode><mu>1.0</mu><mu2>1.0</mu2></ode>
+              <ode><mu>2.5</mu><mu2>2.5</mu2></ode>
             </friction>
             <contact>
               <ode>
@@ -192,7 +191,7 @@
          =============================================================== -->
     <!-- RED CUBE 2 -->
     <model name="red_cube_2">
-      <pose>0.18 -0.12 0.7675 0 0 0</pose>
+      <pose>0.18 0.04 0.7675 0 0 0</pose>
       <link name="cube_link">
         <inertial><mass>0.04</mass>
           <inertia><ixx>8.167e-06</ixx><ixy>0</ixy><ixz>0</ixz><iyy>8.167e-06</iyy><iyz>0</iyz><izz>8.167e-06</izz></inertia>
@@ -203,7 +202,7 @@
         </visual>
         <collision name="collision">
           <geometry><box><size>0.035 0.035 0.035</size></box></geometry>
-          <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
+          <surface><friction><ode><mu>2.5</mu><mu2>2.5</mu2></ode></friction>
             <contact><ode><kp>1000000</kp><kd>100</kd><min_depth>0.001</min_depth></ode></contact></surface>
         </collision>
       </link>
@@ -211,7 +210,7 @@
 
     <!-- GREEN CUBE 2 -->
     <model name="green_cube_2">
-      <pose>0.18 0.20 0.7675 0 0 0</pose>
+      <pose>0.18 0.12 0.7675 0 0 0</pose>
       <link name="cube_link">
         <inertial><mass>0.04</mass>
           <inertia><ixx>8.167e-06</ixx><ixy>0</ixy><ixz>0</ixz><iyy>8.167e-06</iyy><iyz>0</iyz><izz>8.167e-06</izz></inertia>
@@ -222,7 +221,7 @@
         </visual>
         <collision name="collision">
           <geometry><box><size>0.035 0.035 0.035</size></box></geometry>
-          <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
+          <surface><friction><ode><mu>2.5</mu><mu2>2.5</mu2></ode></friction>
             <contact><ode><kp>1000000</kp><kd>100</kd><min_depth>0.001</min_depth></ode></contact></surface>
         </collision>
       </link>
@@ -230,7 +229,7 @@
 
     <!-- YELLOW CUBE 2 -->
     <model name="yellow_cube_2">
-      <pose>0.18 0.04 0.7675 0 0 0</pose>
+      <pose>0.18 0.20 0.7675 0 0 0</pose>
       <link name="cube_link">
         <inertial><mass>0.04</mass>
           <inertia><ixx>8.167e-06</ixx><ixy>0</ixy><ixz>0</ixz><iyy>8.167e-06</iyy><iyz>0</iyz><izz>8.167e-06</izz></inertia>
@@ -241,7 +240,7 @@
         </visual>
         <collision name="collision">
           <geometry><box><size>0.035 0.035 0.035</size></box></geometry>
-          <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
+          <surface><friction><ode><mu>2.5</mu><mu2>2.5</mu2></ode></friction>
             <contact><ode><kp>1000000</kp><kd>100</kd><min_depth>0.001</min_depth></ode></contact></surface>
         </collision>
       </link>
@@ -265,14 +264,14 @@
       <render_engine>ogre2</render_engine>
     </plugin>
 
-    <!-- ===============================================================
-         OVERHEAD CAMERA — centered over cube row
-         Position: (0.18, 0.00, 1.5) — directly above the row center.
-         Ry(+π/2)*[1,0,0] = [0,0,-1] = -Z world = DOWN ✓
-         =============================================================== -->
+        <!-- ===============================================================
+          OVERHEAD CAMERA — offset to reduce arm occlusion
+          Position: (0.30, -0.25, 1.7) — above and to the side of the row.
+          Ry(+π/2)*[1,0,0] = [0,0,-1] = -Z world = DOWN
+          =============================================================== -->
     <model name="overhead_camera">
       <static>true</static>
-      <pose>0.18 0.00 1.5 0 1.5708 0</pose>
+      <pose>0.30 -0.25 1.7 0 1.5708 0</pose>
       <link name="link">
         <sensor name="camera_overhead" type="camera">
           <camera>

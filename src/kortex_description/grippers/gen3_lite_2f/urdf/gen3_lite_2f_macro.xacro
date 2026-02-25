@@ -70,10 +70,11 @@
             <color rgba="0.803 0.824 0.820 1" />
           </material>
         </visual>
+        <!-- Primitive collision for dartsim compatibility (mesh collisions not supported) -->
         <collision>
-          <origin xyz="0 0 0" rpy="0 0 0" />
+          <origin xyz="0 0 0.04" rpy="0 0 0" />
           <geometry>
-            <mesh filename="file://$(find kortex_description)/grippers/gen3_lite_2f/meshes/gripper_base_link.STL" />
+            <cylinder radius="0.025" length="0.08" />
           </geometry>
         </collision>
       </link>
@@ -96,15 +97,21 @@
             <color rgba="0.803 0.824 0.820 1" />
         </material>
       </visual>
+      <!-- Primitive box collision for dartsim compatibility -->
       <collision>
-        <origin xyz="0 0 0" rpy="0 0 0" />
+        <origin xyz="0.022 0.005 0" rpy="0 0 0" />
         <geometry>
-          <mesh filename="file://$(find kortex_description)/grippers/gen3_lite_2f/meshes/right_finger_prox_link.STL" />
+          <box size="0.050 0.018 0.024" />
         </geometry>
       </collision>
       </link>
       <gazebo reference="${prefix}right_finger_prox_link">
         <material>Kortex/Gray</material>
+        <mu1>2.5</mu1>
+        <mu2>2.5</mu2>
+        <kp>1000000</kp>
+        <kd>100</kd>
+        <minDepth>0.001</minDepth>
       </gazebo>
       <joint name="${prefix}right_finger_bottom_joint" type="revolute">
         <origin xyz="0 -0.030501 0.070003" rpy="1.571 0.611 1.571" />
@@ -129,15 +136,21 @@
             <color rgba="0 0.055 0.525 1" />
           </material>
         </visual>
+        <!-- Primitive box collision for dartsim compatibility -->
         <collision>
-          <origin xyz="0 0 0" rpy="0 0 0" />
+          <origin xyz="0.018 0.001 0" rpy="0 0 0" />
           <geometry>
-            <mesh filename="file://$(find kortex_description)/grippers/gen3_lite_2f/meshes/right_finger_dist_link.STL" />
+            <box size="0.044 0.016 0.024" />
           </geometry>
         </collision>
       </link>
       <gazebo reference="${prefix}right_finger_dist_link">
         <material>Kortex/Blue</material>
+        <mu1>2.5</mu1>
+        <mu2>2.5</mu2>
+        <kp>1000000</kp>
+        <kd>100</kd>
+        <minDepth>0.001</minDepth>
       </gazebo>
       <joint name="${prefix}right_finger_tip_joint" type="revolute">
         <origin xyz="-0.045636 0.020423 0" rpy="0 0 0" />
@@ -163,15 +176,21 @@
             <color rgba="0.803 0.824 0.820 1" />
           </material>
         </visual>
+        <!-- Primitive box collision for dartsim compatibility -->
         <collision>
-          <origin xyz="0 0 0" rpy="0 0 0" />
+          <origin xyz="0.022 0.005 0" rpy="0 0 0" />
           <geometry>
-            <mesh filename="file://$(find kortex_description)/grippers/gen3_lite_2f/meshes/left_finger_prox_link.STL" />
+            <box size="0.050 0.018 0.024" />
           </geometry>
         </collision>
       </link>
       <gazebo reference="${prefix}left_finger_prox_link">
         <material>Kortex/Gray</material>
+        <mu1>2.5</mu1>
+        <mu2>2.5</mu2>
+        <kp>1000000</kp>
+        <kd>100</kd>
+        <minDepth>0.001</minDepth>
       </gazebo>
       <joint name="${prefix}left_finger_bottom_joint" type="revolute">
         <origin xyz="0 0.0305 0.070003" rpy="-1.571 0.611 -1.571" />
@@ -197,15 +216,21 @@
             <color rgba="0 0.055 0.525 1" />
           </material>
         </visual>
+        <!-- Primitive box collision for dartsim compatibility -->
         <collision>
-          <origin xyz="0 0 0" rpy="0 0 0" />
+          <origin xyz="-0.018 0.001 0" rpy="0 0 0" />
           <geometry>
-            <mesh filename="file://$(find kortex_description)/grippers/gen3_lite_2f/meshes/left_finger_dist_link.STL" />
+            <box size="0.044 0.016 0.024" />
           </geometry>
         </collision>
       </link>
       <gazebo reference="${prefix}left_finger_dist_link">
         <material>Kortex/Blue</material>
+        <mu1>2.5</mu1>
+        <mu2>2.5</mu2>
+        <kp>1000000</kp>
+        <kd>100</kd>
+        <minDepth>0.001</minDepth>
       </gazebo>
       <joint name="${prefix}left_finger_tip_joint" type="revolute">
         <origin xyz="-0.045636 -0.020423 6.9901E-05" rpy="0 0 0" />
