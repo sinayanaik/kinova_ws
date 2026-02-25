@@ -71,6 +71,8 @@ class PickAndPlaceNode(Node):
         self.desired_wrist_angle = None
         self.no_target_count = 0
         self.max_no_target_cycles = 3
+        self.last_state = None
+        self.last_detection_time = 0.0
 
         # Ordered picking: red -> green -> yellow -> red -> green -> yellow
         self.pick_order = ['red', 'green', 'yellow', 'red', 'green', 'yellow']
@@ -192,11 +194,13 @@ class PickAndPlaceNode(Node):
 
     def _det_cb(self, msg):
         self.latest_cube_detections = msg
+        self.last_detection_time = time.time()
 
     def _log(self, txt):
         self.get_logger().info(txt)
 
     def _transition(self, new, reason):
+        self.last_state = self.state
         self._log(f'STATE {self.state} -> {new} | {reason}')
         self.state = new
 
@@ -591,11 +595,19 @@ class PickAndPlaceNode(Node):
         self._transition(S.OBSERVE, 'Home reached')
 
     def _do_observe(self):
-        obs = self.waypoints.get('observe', {}).get(
-            'joint_angles', [0.0, 0.35, 1.57, 0.0, -1.05, 0.0])
-        self._move_joints(obs, dur=0.6)
-        # Quick settle for perception
-        time.sleep(0.3)
+        skip_motion = (
+            self.last_state in [S.VERIFY_PLACE, S.TRANSIT] and
+            (time.time() - self.last_detection_time) < 0.6
+        )
+        if not skip_motion:
+            obs = self.waypoints.get('observe', {}).get(
+                'joint_angles', [0.0, 0.35, 1.57, 0.0, -1.05, 0.0])
+            self._move_joints(obs, dur=0.4)
+            # Quick settle for perception
+            time.sleep(0.2)
+        else:
+            # Perception is fresh; skip the extra retraction move
+            time.sleep(0.1)
 
         if self.latest_cube_detections is None:
             self._log('No detections yet, waiting...')
