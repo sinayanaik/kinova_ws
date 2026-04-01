@@ -1,23 +1,33 @@
 # =============================================================================
 # cube_container_mapping.yaml
 # Maps each cube color to its target container and world-frame position.
-# Containers placed far from cubes at x=0.40 (cubes at x=0.15-0.17).
-# 6 cubes total (2 per color), each color goes to the same container.
+# `container_position` is the actual tray interior center in world frame.
+# Each tray also exposes two placement slots so cubes are not dropped on top
+# of each other.
 # =============================================================================
 cube_container_mapping:
   red:
     target_container: red_container
-    container_position: [0.40, -0.15, 0.755]
+    container_position: [0.38, -0.15, 0.755]
+    slot_offsets:
+      - [0.0, -0.022, 0.0]
+      - [0.0,  0.022, 0.0]
     num_cubes: 2
 
   green:
     target_container: green_container
-    container_position: [0.40, 0.15, 0.755]
+    container_position: [0.38, 0.15, 0.755]
+    slot_offsets:
+      - [0.0, -0.022, 0.0]
+      - [0.0,  0.022, 0.0]
     num_cubes: 2
 
   yellow:
     target_container: yellow_container
-    container_position: [0.40, 0.0, 0.755]
+    container_position: [0.38, 0.0, 0.755]
+    slot_offsets:
+      - [0.0, -0.022, 0.0]
+      - [0.0,  0.022, 0.0]
     num_cubes: 2
 
 # Cube initial positions (world frame, matching SDF — 0.035m cubes)

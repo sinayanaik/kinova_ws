@@ -10,9 +10,9 @@ waypoints:
     description: "Arm straight up - zero config"
 
   observe:
-    # Arm straight up to avoid blocking the overhead camera view
-    joint_angles: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    description: "Observation pose - arm vertical for clear camera"
+    # Tool-down side pose that clears the camera view without returning to home
+    joint_angles: [0.62, -0.82, 0.75, 1.57, 1.57, 1.64]
+    description: "Observation pose - retracted to the side with vertical gripper"
 
   transit_height_z: 1.05  # Safe Z in world frame for transit (30cm above table)
 

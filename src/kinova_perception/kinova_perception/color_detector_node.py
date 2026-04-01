@@ -13,6 +13,7 @@ import numpy as np
 import cv2
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import PoseArray, Pose, Point, Quaternion
 from std_msgs.msg import Header
@@ -28,6 +29,12 @@ class ColorDetectorNode(Node):
         self.get_logger().info('Initializing single-camera color detector...')
 
         self.bridge = CvBridge()
+        self.image_qos = qos_profile_sensor_data
+        self.low_latency_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+        )
 
         # TF2 for end-effector tracking
         self.tf_buffer = tf2_ros.Buffer()
@@ -39,22 +46,23 @@ class ColorDetectorNode(Node):
         # ---- Single overhead camera subscriber ----
         self.overhead_sub = self.create_subscription(
             Image, '/camera_overhead/image_raw',
-            self._overhead_callback, 10
+            self._overhead_callback, self.image_qos
         )
 
         # ---- Publishers ----
         self.overhead_pub = self.create_publisher(
-            Image, '/camera_overhead/processed', 10
+            Image, '/camera_overhead/processed', self.low_latency_qos
         )
         self.detections_pub = self.create_publisher(
-            PoseArray, '/perception/cube_detections', 10
+            PoseArray, '/perception/cube_detections', self.low_latency_qos
         )
         self.ee_pub = self.create_publisher(
-            Pose, '/perception/ee_position', 10
+            Pose, '/perception/ee_position', self.low_latency_qos
         )
 
         # Detection history for stability filtering
         self.detection_history = {}  # color -> list of recent (x, y, z)
+        self.tracks = {color: [] for color in ['red', 'green', 'yellow']}
 
         # Expected cube positions for verification (from cube_container_mapping.yaml)
         self.expected_positions = {
@@ -124,6 +132,12 @@ class ColorDetectorNode(Node):
         # Stability filter
         self.declare_parameter('position_stability_readings', 3)
         self.declare_parameter('position_stability_tolerance', 0.015)
+        self.declare_parameter('workspace.x_min', 0.10)
+        self.declare_parameter('workspace.x_max', 0.48)
+        self.declare_parameter('workspace.y_limit', 0.28)
+        self.declare_parameter('tracking.association_distance', 0.08)
+        self.declare_parameter('tracking.smoothing_alpha', 0.45)
+        self.declare_parameter('tracking.max_missed_frames', 8)
 
     def _load_parameters(self):
         """Load parameter values into instance variables."""
@@ -199,6 +213,12 @@ class ColorDetectorNode(Node):
 
         self.stability_readings = self.get_parameter('position_stability_readings').value
         self.stability_tol = self.get_parameter('position_stability_tolerance').value
+        self.workspace_x_min = self.get_parameter('workspace.x_min').value
+        self.workspace_x_max = self.get_parameter('workspace.x_max').value
+        self.workspace_y_limit = self.get_parameter('workspace.y_limit').value
+        self.track_assoc_dist = self.get_parameter('tracking.association_distance').value
+        self.track_smoothing_alpha = self.get_parameter('tracking.smoothing_alpha').value
+        self.track_max_missed = self.get_parameter('tracking.max_missed_frames').value
 
     # ======================== COLOR DETECTION ========================
 
@@ -327,6 +347,58 @@ class ColorDetectorNode(Node):
 
         return world_x, world_y, world_z
 
+    @staticmethod
+    def _sort_positions(positions):
+        return sorted(positions, key=lambda p: (p[0], p[1], p[2]))
+
+    def _update_tracks(self, color_name, positions):
+        """Associate detections to short-lived spatial tracks for smoothing."""
+        positions = [np.array(p, dtype=float) for p in self._sort_positions(positions)]
+        tracks = self.tracks[color_name]
+        for track in tracks:
+            track['matched'] = False
+
+        unmatched_detections = []
+        for pos in positions:
+            best_idx = None
+            best_dist = float('inf')
+            for idx, track in enumerate(tracks):
+                if track['matched']:
+                    continue
+                dist = np.linalg.norm(pos[:2] - track['position'][:2])
+                if dist < best_dist:
+                    best_dist = dist
+                    best_idx = idx
+
+            if best_idx is not None and best_dist <= self.track_assoc_dist:
+                track = tracks[best_idx]
+                alpha = float(self.track_smoothing_alpha)
+                track['position'] = alpha * pos + (1.0 - alpha) * track['position']
+                track['missed'] = 0
+                track['matched'] = True
+            else:
+                unmatched_detections.append(pos)
+
+        for track in tracks:
+            if not track['matched']:
+                track['missed'] += 1
+
+        tracks[:] = [track for track in tracks if track['missed'] <= self.track_max_missed]
+
+        for pos in unmatched_detections:
+            tracks.append({
+                'position': pos.copy(),
+                'missed': 0,
+                'matched': True,
+            })
+
+        visible_positions = [
+            track['position'].copy()
+            for track in tracks
+            if track['matched'] or track['missed'] == 0
+        ]
+        return self._sort_positions(visible_positions)
+
     # ======================== CALLBACKS ========================
 
     def _overhead_callback(self, msg):
@@ -355,40 +427,51 @@ class ColorDetectorNode(Node):
         }
 
         coord_texts = {}
+        world_detections = {color: [] for color in color_quat_map}
 
         for color_name, dets in detections.items():
             for i, (cx, cy, area) in enumerate(dets):
                 wx, wy, wz = self._overhead_back_project(cx, cy)
 
-                # Spatial filter: only accept cubes in the pick zone
-                # (x ∈ [0.10, 0.25], y ∈ [-0.25, 0.25]).
-                # Containers are outside this zone and rejected.
-                if not (0.10 < wx < 0.25 and -0.25 < wy < 0.25):
+                # Accept detections anywhere on the table workspace so the
+                # controller can verify tray occupancy and re-acquire cubes
+                # that land outside their target trays.
+                if not (
+                    self.workspace_x_min < wx < self.workspace_x_max and
+                    -self.workspace_y_limit < wy < self.workspace_y_limit
+                ):
                     self.get_logger().debug(
-                        f'Filtered {color_name} outside cube zone: '
+                        f'Filtered {color_name} outside table workspace: '
                         f'({wx:.3f}, {wy:.3f})'
                     )
                     continue
 
+                world_detections[color_name].append(np.array([wx, wy, wz], dtype=float))
+                coord_texts[(color_name, i)] = f'({wx:.2f},{wy:.2f})'
+
+        for color_name, positions in world_detections.items():
+            filtered_positions = self._update_tracks(color_name, positions)
+            for i, position in enumerate(filtered_positions):
                 pose = Pose()
-                pose.position = Point(x=float(wx), y=float(wy), z=float(wz))
+                pose.position = Point(
+                    x=float(position[0]),
+                    y=float(position[1]),
+                    z=float(position[2]),
+                )
                 pose.orientation = color_quat_map[color_name]
                 pose_array.poses.append(pose)
 
-                coord_texts[(color_name, i)] = f'({wx:.2f},{wy:.2f})'
-
-                # Stability tracking
                 key = f'{color_name}_{i}'
                 if key not in self.detection_history:
                     self.detection_history[key] = []
-                self.detection_history[key].append((wx, wy, wz))
+                self.detection_history[key].append(tuple(position.tolist()))
                 if len(self.detection_history[key]) > self.stability_readings * 3:
                     self.detection_history[key] = \
                         self.detection_history[key][-self.stability_readings * 3:]
 
-        # Publish detections
-        if pose_array.poses:
-            self.detections_pub.publish(pose_array)
+        # Always publish the latest detection frame, including empty arrays,
+        # so the controller can clear stale targets and verification state.
+        self.detections_pub.publish(pose_array)
 
         # Publish annotated image
         annotated = self._annotate_image(bgr, detections, coord_texts)

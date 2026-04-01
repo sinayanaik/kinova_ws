@@ -29,7 +29,7 @@ class GripperController:
         open_position: float = 0.0,
         close_position: float = 0.8,
         max_effort: float = 100.0,
-        wait_after_command: float = 1.0,
+        wait_after_command: float = 0.18,
     ):
         """
         Initialize the gripper controller.

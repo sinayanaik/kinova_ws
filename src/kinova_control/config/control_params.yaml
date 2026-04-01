@@ -18,24 +18,74 @@ pick_and_place_node:
 
     # ----- Motion Execution -----
     motion:
-      interpolation_steps: 8
-      waypoint_duration: 0.8        # seconds per waypoint transition
-      slow_duration: 0.8            # seconds for grasp/place approach
+      sample_period: 0.015          # denser trajectory sampling for smoother execution
+      minimum_samples: 16           # denser quintic samples reduce controller stop-start artifacts
+      cartesian_max_step: 0.006     # max EE step between IK samples (m)
+      cartesian_speed: 0.22         # nominal tool speed (m/s) for continuous Cartesian paths
+      cartesian_min_duration: 0.12  # minimum duration for short Cartesian subsegments
+      joint_velocity_limit: 2.5     # rad/s limit used to rescale trajectories
+      joint_acceleration_limit: 6.0 # rad/s^2 limit used to rescale trajectories
+      waypoint_duration: 0.35       # nominal joint-space move duration
+      slow_duration: 0.50           # fallback for careful Cartesian moves
+      home_duration: 0.45
+      observe_duration: 0.20
+      pre_grasp_duration: 0.35
+      coarse_grasp_duration: 0.18
+      grasp_cartesian_duration: 0.35
+      post_grasp_lift_duration: 0.25
+      transit_duration: 0.35
+      place_descent_duration: 0.25
+      place_retreat_duration: 0.18
+      recover_home_duration: 0.70
+      complete_home_duration: 0.90
       transit_height: 0.35          # Z height for safe lateral moves (base frame)
+      transit_clearance_z: 0.88     # world-frame clearance height for staged tray transit
+      transit_stage_x_mid: 0.30     # corridor waypoint between source row and trays
+      transit_stage_x_target: 0.35  # final approach corridor near target trays
+      transit_stage_duration: 0.16  # duration for each staged transit segment
+
+    timing:
+      observe_settle: 0.04
+      observe_skip_pause: 0.02
+      no_detection_wait: 0.20
+      no_target_wait: 0.20
+      verify_observe_settle: 0.08
+      pre_grasp_retry_pause: 0.05
+      coarse_grasp_settle: 0.04
+      pre_close_settle: 0.04
+      post_close_hold: 0.10
+      post_lift_settle: 0.02
+      pre_release_settle: 0.04
+      post_release_settle: 0.08
+      post_place_settle: 0.02
+      recover_settle: 0.10
+
+    placement:
+      finger_angle: 0.0            # align fingers with tray long axis during place
+      slot_axis: 'x'               # distribute tray slots along the tray long axis
+      verify_timeout: 0.80         # wait for perception to confirm tray occupancy
+      verify_poll_period: 0.04
 
     # ----- Gripper Control -----
     gripper:
       open_position: 0.0            # fully open
       close_position: 0.82          # fully closed for empty-grasp detection (with safety margin)
       max_effort: 100.0
-      wait_after_command: 0.5       # seconds to wait after gripper command
+      wait_after_command: 0.02      # seconds to wait after gripper command
+      command_timeout: 1.0          # do not block on gripper action completion longer than this
+      poll_period: 0.02
+      position_tolerance: 0.02
+      stable_epsilon: 0.002
+      stable_cycles: 4
 
     # ----- Grasp Verification -----
     grasp:
       finger_min_expected: 0.15     # min finger pos when cube is held
-      finger_max_expected: 0.75     # max finger pos when cube is held (empirically achievable with contact)
+      finger_max_expected: 0.78     # max finger pos when cube is held
       position_tolerance: 0.05      # meters — cube "gone from table" tolerance
       required_checks: 1            # only finger-gap check needed
+      max_z_axis_error: 0.06
+      max_z_axis_error_coarse: 0.10
 
     # ----- Drop Detection -----
     drop:
@@ -43,14 +93,36 @@ pick_and_place_node:
       finger_min_threshold: 0.1     # below this = cube dropped (fingers too open)
       finger_max_threshold: 0.84    # above this = cube dropped (fingers fully closed)
 
+    selection:
+      allow_color_fallback: false
+      detection_timeout: 0.60
+      observe_joint_tolerance: 0.05
+      max_retarget_distance: 0.06
+      source_clear_x_threshold: 0.30
+
+    workspace:
+      x_min: 0.10
+      x_max: 0.48
+      y_limit: 0.28
+
     # ----- Waypoint Offsets (relative to cube/container positions) -----
     # IK now targets tool_frame (fingertip) directly — no TCP offset needed
     offsets:
       pre_grasp_z: 0.05
-      grasp_z: -0.015               # 15mm below cube top for side contact
+      grasp_z: -0.008               # tool_frame offset below cube center for finger pad alignment
       post_grasp_z: 0.08
-      pre_place_z: 0.10
-      drop_height: 0.07              # height above container to open gripper and drop cube
+      pre_place_z: 0.10             # approach height above tray floor
+      drop_height: 0.07             # legacy parameter retained for compatibility
+      place_release_z: 0.021        # tray floor + cube_half_height + clearance
+
+    tray:
+      inner_size_x: 0.155
+      inner_size_y: 0.115
+      wall_clearance: 0.016
+      verify_margin: 0.012
+
+    cube:
+      size: 0.035
 
     # ----- Arm Joint Names -----
     arm_joint_names:

@@ -14,6 +14,7 @@ from launch.actions import (
     RegisterEventHandler,
     TimerAction,
 )
+from launch.conditions import IfCondition, UnlessCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
@@ -37,6 +38,10 @@ def generate_launch_description():
     # ----- Launch arguments -----
     use_sim_time = LaunchConfiguration('use_sim_time')
     world_file = LaunchConfiguration('world_file')
+    gui = LaunchConfiguration('gui')
+    rqt = LaunchConfiguration('rqt')
+    headless_rendering = LaunchConfiguration('headless_rendering')
+    gz_verbosity = LaunchConfiguration('gz_verbosity')
 
     declare_use_sim_time = DeclareLaunchArgument(
         'use_sim_time', default_value='true',
@@ -46,6 +51,22 @@ def generate_launch_description():
         'world_file',
         default_value=os.path.join(kinova_desc_share, 'worlds', 'pick_and_place.sdf'),
         description='Path to the Gazebo world SDF file'
+    )
+    declare_gui = DeclareLaunchArgument(
+        'gui', default_value='true',
+        description='Start Gazebo GUI as a separate optional process'
+    )
+    declare_rqt = DeclareLaunchArgument(
+        'rqt', default_value='true',
+        description='Start rqt_image_view for the processed overhead camera'
+    )
+    declare_headless = DeclareLaunchArgument(
+        'headless_rendering', default_value='true',
+        description='Run Gazebo server with headless rendering enabled'
+    )
+    declare_gz_verbosity = DeclareLaunchArgument(
+        'gz_verbosity', default_value='3',
+        description='Gazebo verbosity level (0-4)'
     )
 
     # ----- Robot description (xacro → URDF) -----
@@ -72,15 +93,45 @@ def generate_launch_description():
         parameters=[robot_description, {'use_sim_time': use_sim_time}],
     )
 
-    # Gazebo Sim
-    gazebo = IncludeLaunchDescription(
+    # Gazebo server only. Running GUI separately is more robust because a GUI
+    # crash no longer tears down the simulation server.
+    gazebo_server = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
             FindPackageShare('ros_gz_sim'), '/launch/gz_sim.launch.py'
         ]),
         launch_arguments={
-            'gz_args': ['-r -v 4 ', world_file],
+            'gz_args': [
+                '-s -r ',
+                '--headless-rendering ',
+                '-v ', gz_verbosity, ' ',
+                world_file,
+            ],
             'on_exit_shutdown': 'true',
         }.items(),
+        condition=IfCondition(headless_rendering),
+    )
+    gazebo_server_no_headless = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([
+            FindPackageShare('ros_gz_sim'), '/launch/gz_sim.launch.py'
+        ]),
+        launch_arguments={
+            'gz_args': ['-s -r -v ', gz_verbosity, ' ', world_file],
+            'on_exit_shutdown': 'true',
+        }.items(),
+        condition=UnlessCondition(headless_rendering),
+    )
+
+    # Optional GUI attaches to the running server. If it crashes, the server
+    # keeps running and the rest of the stack is unaffected.
+    gazebo_gui = TimerAction(
+        period=2.0,
+        actions=[
+            ExecuteProcess(
+                cmd=['gz', 'sim', '-g', '-v', gz_verbosity, '--force-version', '8'],
+                output='screen',
+            )
+        ],
+        condition=IfCondition(gui),
     )
 
     # Spawn robot into Gazebo
@@ -150,7 +201,7 @@ def generate_launch_description():
 
     # Perception launch (delayed to let cameras initialize)
     perception_launch = TimerAction(
-        period=4.0,
+        period=2.5,
         actions=[
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
@@ -163,7 +214,7 @@ def generate_launch_description():
 
     # Control launch (delayed to let perception + controllers initialize)
     control_launch = TimerAction(
-        period=6.0,
+        period=4.5,
         actions=[
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
@@ -176,7 +227,7 @@ def generate_launch_description():
 
     # rqt_image_view for overhead camera feed
     rqt_overhead = TimerAction(
-        period=10.0,
+        period=4.0,
         actions=[
             ExecuteProcess(
                 cmd=['ros2', 'run', 'rqt_image_view', 'rqt_image_view',
@@ -184,13 +235,20 @@ def generate_launch_description():
                 output='screen',
             )
         ],
+        condition=IfCondition(rqt),
     )
 
     return LaunchDescription([
         declare_use_sim_time,
         declare_world_file,
+        declare_gui,
+        declare_rqt,
+        declare_headless,
+        declare_gz_verbosity,
         robot_state_publisher,
-        gazebo,
+        gazebo_server,
+        gazebo_server_no_headless,
+        gazebo_gui,
         spawn_robot,
         spawn_joint_state_broadcaster,
         delayed_arm_controller,

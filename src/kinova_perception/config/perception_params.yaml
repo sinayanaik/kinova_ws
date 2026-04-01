@@ -63,3 +63,13 @@ color_detector:
     detection_confidence_threshold: 0.5
     position_stability_readings: 3
     position_stability_tolerance: 0.015
+
+    workspace:
+      x_min: 0.10
+      x_max: 0.48
+      y_limit: 0.28
+
+    tracking:
+      association_distance: 0.08
+      smoothing_alpha: 0.45
+      max_missed_frames: 8

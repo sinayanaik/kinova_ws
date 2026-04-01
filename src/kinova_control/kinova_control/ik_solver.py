@@ -46,7 +46,7 @@ class IKSolver:
         np.array([ 0.0, -0.55, 2.00, 1.64,  0.55, 0.0]),   # z≈0.80
         np.array([ 0.0, -0.18, 2.00, 1.64,  0.91, 0.0]),   # z≈0.90
         # General configs
-        np.array([ 0.0, 0.35, 1.57, 0.0, -1.05, 0.0]),     # observe pose
+        np.array([ 0.62,-0.82, 0.75, 1.57, 1.57, 1.64]),   # observe pose, tool-down
         np.array([ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),         # home/zero
     ]
 
@@ -110,6 +110,11 @@ class IKSolver:
             if self.q_min[i] < self.q_max[i]:
                 q[i] = np.clip(q[i], self.q_min[i], self.q_max[i])
         return q
+
+    def clamp_arm_joints(self, q_arm: np.ndarray) -> np.ndarray:
+        """Clamp an arm-only joint vector to the model joint limits."""
+        q_arm = np.array(q_arm, dtype=float).copy()
+        return self._clamp_joints(q_arm)
 
     def solve(
         self,

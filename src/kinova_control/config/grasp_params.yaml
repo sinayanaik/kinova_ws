@@ -2,7 +2,7 @@
   ros__parameters:
     grasp:
       finger_min_expected: 0.15
-      finger_max_expected: 0.75
+      finger_max_expected: 0.78
       position_tolerance: 0.05
       required_checks: 1
     drop:
@@ -12,6 +12,6 @@
       open_position: 0.0
       close_position: 0.82
       max_effort: 100.0
-      wait_after_command: 0.5
+      wait_after_command: 0.02
     offsets:
-      grasp_z: -0.015
+      grasp_z: -0.008
