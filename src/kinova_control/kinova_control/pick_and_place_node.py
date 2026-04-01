@@ -933,11 +933,14 @@ class PickAndPlaceNode(Node):
     def _do_observe(self):
         obs = self._observe_joints()
 
-        # Skip observe motion when fresh detections are available
-        # (e.g. after placing, the camera can still see the cubes)
-        skip_motion = self._detections_are_fresh() and (
+        # After placing, do NOT swing to observe — just wait for fresh
+        # detections from wherever the arm is.  The camera will see the
+        # source row once the arm starts moving toward the next cube.
+        skip_motion = (
             self.last_state in (S.VERIFY_PLACE, S.INITIALIZE) or
-            (self.last_state == S.TRANSIT and self._is_near_joint_target(obs))
+            (self._detections_are_fresh() and
+             self.last_state == S.TRANSIT and
+             self._is_near_joint_target(obs))
         )
 
         if not skip_motion:
@@ -946,9 +949,11 @@ class PickAndPlaceNode(Node):
             if not self._sleep(self._param_float('timing.observe_settle')):
                 return
         else:
-            # Perception is fresh; skip the extra retraction move
-            if not self._sleep(self._param_float('timing.observe_skip_pause')):
-                return
+            # Wait until detections arrive (camera may be briefly blocked)
+            deadline = time.time() + 2.0
+            while not self._detections_are_fresh() and time.time() < deadline:
+                if not self._sleep(0.05):
+                    return
 
         if self.latest_cube_detections is None:
             self._log('No detections yet, waiting...')
@@ -1205,9 +1210,30 @@ class PickAndPlaceNode(Node):
         if self.current_cube_pos is not None:
             self._set_desired_wrist_angle(self.current_cube_pos)
         self._open()
+
         off = self.get_parameter('offsets.pre_grasp_z').value
         pos = self.current_cube_pos.copy()
         pos[2] += off
+
+        # If the arm is still over the tray area (x > 0.28), retract via a
+        # neutral midpoint so the joint-space interpolation doesn't swing the
+        # arm wildly.  Two small moves are much safer than one big one.
+        tool = self._tool_translation()
+        if tool is not None and tool[0] > 0.28:
+            retract_z = self._param_float('motion.transit_clearance_z')
+            # Step A — move above table centre (between trays and source row)
+            mid_pos = np.array([0.25, 0.0, retract_z])
+            self._log(f'Retract mid {np.round(mid_pos,3)}')
+            ok = self._move_to_pose(mid_pos, dur=0.30, strict=False)
+            if not ok:
+                self._log('Mid-retract failed, trying direct')
+            # Step B — move above the target cube at clearance height
+            above_target = np.array([pos[0], pos[1], retract_z])
+            self._log(f'Retract above {np.round(above_target,3)}')
+            ok = self._move_to_pose(above_target, dur=0.30, strict=False)
+            if not ok:
+                self._log('Above-target retract failed, trying direct')
+
         self._log(f'Pre-grasp: {np.round(pos,3)}')
         ok = self._move_to_pose(pos, dur=self._param_float('motion.pre_grasp_duration'))
         if ok:
