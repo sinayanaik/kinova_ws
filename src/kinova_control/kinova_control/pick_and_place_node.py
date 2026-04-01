@@ -386,6 +386,50 @@ class PickAndPlaceNode(Node):
             self._sync_commanded_arm_state(target)
         return ok
 
+    def _move_through_poses(self, pose_list, dur_list, strict=False):
+        """Smooth joint-space move through multiple Cartesian poses.
+
+        Solves IK for each pose, then uses cubic Hermite multi-waypoint
+        planner so the robot passes through intermediates at non-zero
+        velocity (no halting).
+        """
+        if self.ik_solver is None or self.motion_executor is None:
+            return False
+
+        joint_waypoints = []
+        q_prev = self.commanded_arm_positions.copy()
+        for pos in pose_list:
+            pos = np.array(pos, dtype=float)
+            ok, q = self.ik_solver.solve_robust(
+                pos, self.grasp_R, q_prev.copy(), 300, 2e-3)
+            ee = self.ik_solver.forward_kinematics(q)
+            err = np.linalg.norm(ee.translation - pos)
+            threshold = 0.008 if strict else 0.015
+            if err > threshold:
+                ok2, q2 = self.ik_solver.solve_z_axis_down(
+                    pos, q_prev.copy(), 500, 2e-3)
+                ee2 = self.ik_solver.forward_kinematics(q2)
+                err2 = np.linalg.norm(ee2.translation - pos)
+                if err2 < err:
+                    q = q2
+            # Apply wrist angle if set
+            if self.desired_wrist_angle is not None:
+                q = self._align_fingers_to_angle(q, self.desired_wrist_angle)
+            elif self.current_cube_pos is not None:
+                q = self._align_fingers_avoid_neighbors(q, self.current_cube_pos)
+            q = self.ik_solver.clamp_arm_joints(q)
+            joint_waypoints.append(q)
+            q_prev = q
+
+        traj = self.motion_executor.plan_multi_waypoint_trajectory(
+            joint_waypoints, dur_list,
+            q_init=self.commanded_arm_positions.copy(),
+        )
+        ok = self.motion_executor.execute_trajectory_blocking(traj)
+        if ok and joint_waypoints:
+            self._sync_commanded_arm_state(joint_waypoints[-1])
+        return ok
+
     def _cartesian_segment_durations(self, points, minimum_duration=None):
         if not points:
             return []
@@ -1215,24 +1259,24 @@ class PickAndPlaceNode(Node):
         pos = self.current_cube_pos.copy()
         pos[2] += off
 
-        # If the arm is still over the tray area (x > 0.28), retract via a
-        # neutral midpoint so the joint-space interpolation doesn't swing the
-        # arm wildly.  Two small moves are much safer than one big one.
+        # If the arm is still over the tray area (x > 0.28), plan a smooth
+        # multi-waypoint trajectory: mid-retract → above target → pre-grasp
+        # with non-zero intermediate velocities (no halting).
         tool = self._tool_translation()
         if tool is not None and tool[0] > 0.28:
             retract_z = self._param_float('motion.transit_clearance_z')
-            # Step A — move above table centre (between trays and source row)
             mid_pos = np.array([0.25, 0.0, retract_z])
-            self._log(f'Retract mid {np.round(mid_pos,3)}')
-            ok = self._move_to_pose(mid_pos, dur=0.30, strict=False)
-            if not ok:
-                self._log('Mid-retract failed, trying direct')
-            # Step B — move above the target cube at clearance height
             above_target = np.array([pos[0], pos[1], retract_z])
-            self._log(f'Retract above {np.round(above_target,3)}')
-            ok = self._move_to_pose(above_target, dur=0.30, strict=False)
-            if not ok:
-                self._log('Above-target retract failed, trying direct')
+            self._log(f'Smooth retract: mid {np.round(mid_pos,3)} '
+                       f'-> above {np.round(above_target,3)} -> pre {np.round(pos,3)}')
+            ok = self._move_through_poses(
+                [mid_pos, above_target, pos],
+                [0.30, 0.30, 0.25],
+            )
+            if ok:
+                self._transition(S.GRASP, 'Above cube')
+                return
+            self._log('Smooth retract failed, fallback to direct')
 
         self._log(f'Pre-grasp: {np.round(pos,3)}')
         ok = self._move_to_pose(pos, dur=self._param_float('motion.pre_grasp_duration'))

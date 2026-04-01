@@ -209,6 +209,105 @@ class MotionExecutor:
 
         return self._trajectory_from_samples(positions, velocities, accelerations, times)
 
+    def plan_multi_waypoint_trajectory(
+        self,
+        waypoint_joints: list,
+        durations: list,
+        q_init: Optional[np.ndarray] = None,
+    ) -> JointTrajectory:
+        """Plan a smooth trajectory through multiple joint-space waypoints.
+
+        Uses cubic Hermite interpolation with estimated intermediate
+        velocities so the robot passes through each waypoint without
+        stopping.  Only the very first and very last points have zero
+        velocity (quintic ease-in / ease-out at the endpoints).
+        """
+        q_start = self.current_joints.copy() if q_init is None else np.array(q_init, dtype=float)
+        wps = [q_start.copy()] + [np.array(w, dtype=float) for w in waypoint_joints]
+        n_seg = len(wps) - 1
+        if n_seg < 1:
+            return self.plan_joint_trajectory(q_start, 0.1)
+
+        # Pad durations
+        durs = [max(float(d), self.sample_period * 4) for d in durations]
+        while len(durs) < n_seg:
+            durs.append(durs[-1])
+        durs = durs[:n_seg]
+
+        # Estimate intermediate velocities using Catmull-Rom style:
+        # v_i = (q_{i+1} - q_{i-1}) / (T_{i-1} + T_i)
+        # Boundary: v_0 = 0, v_n = 0
+        vels = [np.zeros_like(q_start)] * (n_seg + 1)
+        for i in range(1, n_seg):
+            dt = durs[i - 1] + durs[i]
+            vels[i] = (wps[i + 1] - wps[i - 1]) / max(dt, 1e-6)
+        vels[0] = np.zeros_like(q_start)
+        vels[n_seg] = np.zeros_like(q_start)
+
+        # Build concatenated samples via cubic Hermite per segment
+        all_positions = [q_start.copy()]
+        all_velocities = [np.zeros_like(q_start)]
+        all_accelerations = [np.zeros_like(q_start)]
+        all_times = [0.0]
+        t_offset = 0.0
+
+        for seg in range(n_seg):
+            T = durs[seg]
+            p0, p1 = wps[seg], wps[seg + 1]
+            v0, v1 = vels[seg], vels[seg + 1]
+
+            n_samples = max(self.min_samples, int(np.ceil(T / self.sample_period)) + 1)
+            ts = np.linspace(0.0, T, n_samples)
+
+            for k in range(1, n_samples):
+                t = ts[k]
+                tau = t / T
+                tau2 = tau * tau
+                tau3 = tau2 * tau
+
+                # Cubic Hermite basis
+                h00 = 2 * tau3 - 3 * tau2 + 1
+                h10 = tau3 - 2 * tau2 + tau
+                h01 = -2 * tau3 + 3 * tau2
+                h11 = tau3 - tau2
+
+                pos = h00 * p0 + h10 * T * v0 + h01 * p1 + h11 * T * v1
+
+                # Velocity (d/dt of Hermite)
+                dh00 = (6 * tau2 - 6 * tau) / T
+                dh10 = (3 * tau2 - 4 * tau + 1) / T
+                dh01 = (-6 * tau2 + 6 * tau) / T
+                dh11 = (3 * tau2 - 2 * tau) / T
+                vel = dh00 * p0 + dh10 * T * v0 + dh01 * p1 + dh11 * T * v1
+
+                # Acceleration (d²/dt² of Hermite)
+                ddh00 = (12 * tau - 6) / (T * T)
+                ddh10 = (6 * tau - 4) / (T * T)
+                ddh01 = (-12 * tau + 6) / (T * T)
+                ddh11 = (6 * tau - 2) / (T * T)
+                acc = ddh00 * p0 + ddh10 * T * v0 + ddh01 * p1 + ddh11 * T * v1
+
+                all_positions.append(pos)
+                all_velocities.append(vel)
+                all_accelerations.append(acc)
+                all_times.append(t_offset + t)
+
+            t_offset += T
+
+        positions = np.array(all_positions, dtype=float)
+        velocities = np.array(all_velocities, dtype=float)
+        accelerations = np.array(all_accelerations, dtype=float)
+        times = np.array(all_times, dtype=float)
+
+        # Time-scale if limits are violated
+        scaled_times, scale = self._limit_time_scaling(times, velocities, accelerations)
+        if scale > 1.0:
+            times = scaled_times
+            velocities /= scale
+            accelerations /= (scale * scale)
+
+        return self._trajectory_from_samples(positions, velocities, accelerations, times)
+
     def plan_cartesian_trajectory(
         self,
         target_position: np.ndarray,
