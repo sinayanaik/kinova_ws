@@ -5,3 +5,5 @@ log/
 __pycache__/
 .vscode/
 *.egg-info/
+.venv/
+.deps_installed
