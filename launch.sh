@@ -4,7 +4,7 @@
 # Portable launcher for the Kinova Gen3 Lite pick-and-place system.
 #
 # On first run it will:
-#   1. Auto-detect or install a ROS 2 distribution (Jazzy / Humble)
+#   1. Detect an existing ROS 2 distribution (Jazzy / Humble)
 #   2. Install all required apt packages (ros, gazebo, ros2_control, etc.)
 #   3. Create a project-local Python venv with compatible packages
 #   4. Export all necessary environment variables
@@ -99,37 +99,6 @@ ros_setup_path() {
     else
         printf '%s' "/opt/ros/${DETECTED_DISTRO}/setup.bash"
     fi
-}
-
-# ── ROS 2 installation (only when nothing found) ────────────────────────────
-install_ros2() {
-    log "No ROS 2 installation found. Attempting to install ROS 2 Jazzy..."
-
-    sudo apt-get update -qq || die "apt-get update failed — check your internet"
-    sudo apt-get install -y -qq software-properties-common curl locales >/dev/null
-
-    sudo locale-gen en_US.UTF-8 2>/dev/null || true
-
-    if [[ ! -f /usr/share/keyrings/ros-archive-keyring.gpg ]]; then
-        sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
-            -o /usr/share/keyrings/ros-archive-keyring.gpg \
-            || die "Failed to download ROS GPG key — check your internet"
-    fi
-
-    local codename
-    codename="$(. /etc/os-release && echo "${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}")"
-    [[ -n "${codename}" ]] || die "Cannot determine Ubuntu codename for ROS repo"
-
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
-http://packages.ros.org/ros2/ubuntu ${codename} main" \
-        | sudo tee /etc/apt/sources.list.d/ros2.list >/dev/null
-
-    sudo apt-get update -qq
-    sudo apt-get install -y ros-jazzy-desktop >/dev/null 2>&1 \
-        || die "Failed to install ros-jazzy-desktop"
-
-    DETECTED_DISTRO="jazzy"
-    log "ROS 2 Jazzy installed"
 }
 
 # ── Dependency installation ──────────────────────────────────────────────────
@@ -506,11 +475,8 @@ main() {
     detect_multiarch
     log "Architecture: ${MULTIARCH}"
 
-    # Step 1: Detect or install ROS 2
-    if ! detect_ros_distro; then
-        install_ros2
-        detect_ros_distro || die "ROS 2 installation failed"
-    fi
+    # Step 1: Detect ROS 2
+    detect_ros_distro || die "No ROS 2 installation found — please install ROS 2 first"
     log "Detected ROS 2 distro: ${DETECTED_DISTRO}"
 
     # Step 2: Source ROS 2 underlay
