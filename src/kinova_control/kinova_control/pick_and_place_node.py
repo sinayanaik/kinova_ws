@@ -47,7 +47,7 @@ class PickAndPlaceNode(Node):
         super().__init__('pick_and_place_node')
         self.get_logger().info('Pick-and-Place node starting...')
         self.cb_group = ReentrantCallbackGroup()
-        self.run_started_at = time.monotonic()
+        self.run_started_at = None  # set from sim clock on first use
         self.low_latency_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
             depth=1,
@@ -265,10 +265,23 @@ class PickAndPlaceNode(Node):
 
     def _det_cb(self, msg):
         self.latest_cube_detections = msg
-        self.last_detection_time = time.time()
+        self.last_detection_time = self._sim_time()
+
+    def _sim_time(self):
+        """Current time in seconds (simulation time when available)."""
+        try:
+            t = self.get_clock().now().nanoseconds / 1e9
+            if t > 0.0:
+                return t
+        except Exception:
+            pass
+        return time.monotonic()
 
     def _elapsed_tag(self):
-        return f'[t={time.monotonic() - self.run_started_at:6.2f}s]'
+        now = self._sim_time()
+        if self.run_started_at is None:
+            self.run_started_at = now
+        return f'[t={now - self.run_started_at:6.2f}s]'
 
     def _log(self, txt):
         self.get_logger().info(f'{self._elapsed_tag()} {txt}')
@@ -289,12 +302,29 @@ class PickAndPlaceNode(Node):
         return self._stop_event.is_set() or not rclpy.ok()
 
     def _sleep(self, duration):
-        deadline = time.monotonic() + max(0.0, float(duration))
+        duration = max(0.0, float(duration))
+        wall_start = time.monotonic()
+        # Check if sim clock is already active
+        try:
+            st = self.get_clock().now().nanoseconds / 1e9
+            sim_start = st if st > 0.0 else None
+        except Exception:
+            sim_start = None
         while not self._should_stop():
-            remaining = deadline - time.monotonic()
-            if remaining <= 0.0:
+            # Prefer sim-time tracking once available
+            try:
+                st = self.get_clock().now().nanoseconds / 1e9
+                if st > 0.0:
+                    if sim_start is None:
+                        sim_start = st  # clock just became available
+                    elif st - sim_start >= duration:
+                        return True
+            except Exception:
+                pass
+            # Wall-clock fallback only while sim clock isn't active
+            if sim_start is None and (time.monotonic() - wall_start >= duration):
                 return True
-            time.sleep(min(0.05, remaining))
+            time.sleep(0.005)
         return False
 
     def _param_float(self, name):
@@ -339,7 +369,7 @@ class PickAndPlaceNode(Node):
             return False
         if timeout is None:
             timeout = self._param_float('selection.detection_timeout')
-        return (time.time() - self.last_detection_time) <= float(timeout)
+        return (self._sim_time() - self.last_detection_time) <= float(timeout)
 
     def _clear_active_target(self, reset_color=False):
         if reset_color:
@@ -818,7 +848,7 @@ class PickAndPlaceNode(Node):
             if gh is None or not gh.accepted:
                 return False
             rfut = gh.get_result_async()
-            deadline = time.monotonic() + self._param_float('gripper.command_timeout')
+            deadline = self._sim_time() + self._param_float('gripper.command_timeout')
             poll_period = self._param_float('gripper.poll_period')
             pos_tol = self._param_float('gripper.position_tolerance')
             stable_eps = self._param_float('gripper.stable_epsilon')
@@ -828,7 +858,7 @@ class PickAndPlaceNode(Node):
             stable_cycles = 0
             last_pos = float(self.current_finger_pos)
 
-            while not rfut.done() and time.monotonic() < deadline:
+            while not rfut.done() and self._sim_time() < deadline:
                 if not self._sleep(poll_period):
                     return False
                 curr_pos = float(self.current_finger_pos)
@@ -994,8 +1024,8 @@ class PickAndPlaceNode(Node):
                 return
         else:
             # Wait until detections arrive (camera may be briefly blocked)
-            deadline = time.time() + 2.0
-            while not self._detections_are_fresh() and time.time() < deadline:
+            deadline = self._sim_time() + 2.0
+            while not self._detections_are_fresh() and self._sim_time() < deadline:
                 if not self._sleep(0.05):
                     return
 
@@ -1228,10 +1258,10 @@ class PickAndPlaceNode(Node):
     def _wait_for_place_confirmation(self, color, baseline_count, slot_target=None):
         timeout = self._param_float('placement.verify_timeout')
         poll = self._param_float('placement.verify_poll_period')
-        deadline = time.time() + timeout
+        deadline = self._sim_time() + timeout
         best_count = baseline_count
 
-        while time.time() < deadline:
+        while self._sim_time() < deadline:
             if not self._detections_are_fresh(timeout=max(poll * 2.0, 0.2)):
                 if not self._sleep(poll):
                     break
